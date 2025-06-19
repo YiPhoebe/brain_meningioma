@@ -1,0 +1,33 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.so
+
+# Conda/venv
+.env
+env/
+.venv/
+venv/
+*.env
+
+# Jupyter & VSCode
+.ipynb_checkpoints/
+.vscode/
+*.code-workspace
+
+# 데이터, 모델, 로그
+data/
+outputs/
+runs/
+*.log
+*.h5
+*.ckpt
+*.pth
+*.npz
+*.npy
+
+# 시스템 파일
+.DS_Store
+
+# 환경 설정
+environment.yml
