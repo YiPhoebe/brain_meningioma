@@ -1,13 +1,17 @@
-# Python cache
+# Python 기본
 __pycache__/
 *.py[cod]
 *.so
+*.egg
+*.egg-info/
+*.log
 
-# Conda/venv
-.env
-env/
+# 가상환경
 .venv/
 venv/
+env/
+ENV/
+.env
 *.env
 
 # Jupyter & VSCode
@@ -15,16 +19,39 @@ venv/
 .vscode/
 *.code-workspace
 
+# 개인 설정
+*.swp
+*.swo
+*.bak
+
 # 데이터, 모델, 로그
 data/
 outputs/
 runs/
-*.log
-*.h5
-*.ckpt
+logs/
+*.csv
 *.pth
+*.ckpt
 *.npz
 *.npy
+*.h5
+*.pt
+
+# 이미지, 시각화 결과물
+*.png
+*.jpg
+*.jpeg
+*.tiff
+*.bmp
+*.gif
+
+# NIfTI 및 의료 영상 파일
+*.nii
+*.nii.gz
+
+# Slice 저장 디렉토리
+4.slice/
+5.npy_visualize/
 
 # 시스템 파일
 .DS_Store
