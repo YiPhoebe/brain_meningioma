@@ -50,8 +50,6 @@ logs/
 *.nii.gz
 
 # Slice 저장 디렉토리
-4.slice/
-5.npy_visualize/
 
 # 시스템 파일
 .DS_Store
