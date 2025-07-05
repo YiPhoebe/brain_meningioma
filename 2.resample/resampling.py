@@ -36,6 +36,10 @@ def resample_gtv(image_path, output_path, new_spacing=new_spacing):
     label = tio.LabelMap(str(image_path))
     resample_transform = tio.Resample(new_spacing, image_interpolation='nearest')
     resampled = resample_transform(label)
+    # Convert to np.uint8 using .dataobj and assign back to resampled.data
+    import numpy as np
+    data_uint8 = np.asanyarray(resampled.data.data).astype(np.uint8)
+    resampled.data = torch.from_numpy(data_uint8).unsqueeze(0)
     resampled.save(str(output_path))
     print(f"✅ Resampled GTV: {image_path.name} → {output_path}")
 
@@ -56,7 +60,7 @@ for input_split, output_split in splits.items():
         resample_t1c(file, out_file)
 
     # GTV resampling
-    for file in sorted(input_dir.glob("*_t1c_gtv_mask.nii.gz")):
+    for file in sorted(input_dir.glob("*_gtv_mask.nii.gz")):
         out_file = output_dir / file.name
         resample_gtv(file, out_file)
 

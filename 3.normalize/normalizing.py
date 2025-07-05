@@ -25,8 +25,8 @@ all_bbox_stats = []
 all_cases = []
 for d in re_dirs:
     phase = d.split("/")[-1].replace("r_", "")  # extract phase from path
-    for f in sorted(glob(os.path.join(d, "*_t1c_gtv_mask.nii.gz"))):
-        pid = os.path.basename(f).replace("_t1c_gtv_mask.nii.gz", "")
+    for f in sorted(glob(os.path.join(d, "*_gtv_mask.nii.gz"))):
+        pid = os.path.basename(f).replace("_gtv_mask.nii.gz", "")
         all_cases.append((pid, d, phase))
 
 for pid, re_dir, phase in all_cases:
@@ -151,9 +151,14 @@ for pid, re_dir, phase in all_cases:
     import shutil
 
     # 마스크도 같은 위치로 복사 (정규화는 안 함)
-    orig_bet_mask_path = os.path.join(re_dir, f"{pid}_t1c_bet_mask.nii.gz")
-    orig_gtv_mask_path = os.path.join(re_dir, f"{pid}_t1c_gtv_mask.nii.gz")
-    shutil.copy(orig_bet_mask_path, os.path.join(nii_dir, f"{pid}_bet_mask.nii.gz"))
+    orig_bet_mask_path = os.path.join(re_dir, f"{pid}_bet_mask.nii.gz")
+    orig_gtv_mask_path = os.path.join(re_dir, f"{pid}_gtv_mask.nii.gz")
+    # BET 마스크: 타입을 np.uint8로 변환해서 저장
+    orig_bet_mask = nib.load(orig_bet_mask_path)
+    orig_bet_data = orig_bet_mask.get_fdata().astype(np.uint8)
+    bet_img = nib.Nifti1Image(orig_bet_data, orig_bet_mask.affine)
+    nib.save(bet_img, os.path.join(nii_dir, f"{pid}_bet_mask.nii.gz"))
+    # GTV 마스크는 그대로 복사
     shutil.copy(orig_gtv_mask_path, os.path.join(nii_dir, f"{pid}_gtv_mask.nii.gz"))
 
     nii = nib.load(img_path)  # 원래 이미지에서 affine 가져옴
