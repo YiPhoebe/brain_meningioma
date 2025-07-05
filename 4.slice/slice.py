@@ -1,73 +1,42 @@
-def crop_to_brain_region(img, mask):
-    coords = np.argwhere(mask > 0)
-    if coords.size == 0:
-        return None  # or raise error?
-    y_min, x_min = coords.min(axis=0)
-    y_max, x_max = coords.max(axis=0) + 1
-    return img[y_min:y_max, x_min:x_max]
-
-# Crop a 3D volume to the bounding box of the brain region in bet_mask
-def crop_volume_to_brain(volume, bet_mask):
-    coords = np.argwhere(bet_mask > 0)
-    if coords.size == 0:
-        return None
-    zmin, ymin, xmin = coords.min(axis=0)
-    zmax, ymax, xmax = coords.max(axis=0) + 1
-    return volume[zmin:zmax, ymin:ymax, xmin:xmax]
+# Numeric patient ID extraction helper for sorting
+def extract_numeric_id(pid: str) -> int:
+    return int(pid.split("-")[3])
 import os
-import numpy as np
 import nibabel as nib
-import csv
-from glob import glob
-from scipy.ndimage import center_of_mass
+import pandas as pd
+import numpy as np
 from scipy.stats import zscore
-from tqdm import tqdm
 import imageio
-import matplotlib.pyplot as plt
+from scipy.ndimage import center_of_mass
 
+def filter_patient_by_csv(csv_path: str, removed_threshold: float = 1.0):
+    """
+    CSV 파일에서 removed_ratio >= threshold 인 환자 목록을 반환
+    """
+    df = pd.read_csv(csv_path)
+    return df[df["removed_ratio"] >= removed_threshold]["patient_id"].tolist()
 
-def extract_patient_id(filename):
-    return filename.split('/')[-1].split('_')[0]
+def load_gtv_mask(patient_id: str, base_dir: str) -> np.ndarray:
+    """
+    주어진 환자 ID에 대해 GTV 마스크를 불러온다.
+    base_dir에는 GTV 파일들이 patient_id_gtv_mask.nii.gz 형태로 저장되어 있어야 함
+    """
+    mask_path = os.path.join(base_dir, f"{patient_id}_gtv_mask.nii.gz")
+    if not os.path.exists(mask_path):
+        raise FileNotFoundError(f"GTV 마스크 파일 없음: {mask_path}")
+    return nib.load(mask_path).get_fdata()
 
+def load_bet_mask(patient_id: str, base_dir: str) -> np.ndarray:
+    """
+    주어진 환자 ID에 대해 BET 마스크를 불러온다.
+    base_dir에는 patient_id_bet_mask.nii.gz 형태로 저장되어 있어야 함
+    """
+    mask_path = os.path.join(base_dir, f"{patient_id}_bet_mask.nii.gz")
+    if not os.path.exists(mask_path):
+        raise FileNotFoundError(f"BET 마스크 파일 없음: {mask_path}")
+    return nib.load(mask_path).get_fdata()
 
-def filter_patient_by_csv(csv_path, threshold=0.4):
-    exclude = []
-    if not os.path.exists(csv_path):
-        print(f"[WARNING] CSV not found: {csv_path}. Skipping exclusion.")
-        return exclude
-    with open(csv_path, newline='') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            if float(row['removed_ratio']) > threshold:
-                exclude.append(row['patient_id'])
-    return exclude
-
-
-def load_image_volume(path):
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Image not found: {path}")
-    img = nib.load(path)
-    img = nib.as_closest_canonical(img)
-    return img.get_fdata(), img.affine
-
-
-def load_gtv_mask(path):
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"GTV mask not found: {path}")
-    img = nib.load(path)
-    img = nib.as_closest_canonical(img)
-    return img.get_fdata().astype(np.uint8), img.affine
-
-
-def load_bet_mask(path):
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"BET mask not found: {path}")
-    img = nib.load(path)
-    img = nib.as_closest_canonical(img)
-    return img.get_fdata().astype(np.uint8), img.affine
-
-
-def filter_slices_by_mask_area(gtv_mask, area_thresh=10, z_thresh=2.0):
+def filter_slices_by_mask_area(gtv_mask, area_thresh=10, z_thresh=2.5):
     areas = np.sum(gtv_mask, axis=(1, 2))
     z_scores = zscore(areas)
 
@@ -77,162 +46,189 @@ def filter_slices_by_mask_area(gtv_mask, area_thresh=10, z_thresh=2.0):
             keep_slices.append(z)
     return keep_slices
 
-def save_filtered_slices(output_root, patient_id, image, gtv_mask, bet_mask, keep_slices, norm_path):
-    npy_dir = os.path.join(output_root, patient_id)
-    os.makedirs(npy_dir, exist_ok=True)
 
-    for z in keep_slices:
-        # Skip if z is out of bounds for any of the volumes
-        if z >= image.shape[2] or z >= gtv_mask.shape[2] or z >= bet_mask.shape[2]:
-            import logging
-            logger = logging.getLogger("slice")
-            logger.warning(f"[SKIP] {patient_id} - z={z} out of bounds (img:{image.shape[2]}, gtv:{gtv_mask.shape[2]}, bet:{bet_mask.shape[2]})")
-            continue
-        img_slice = image[:, :, z]
-        mask_slice = gtv_mask[:, :, z]
-        bet_slice = bet_mask[:, :, z]  # BET는 여전히 불러오지만 이미지에는 적용 안 함
+# 수정: BET 마스크 적용 버전 저장
+def save_filtered_slices(volume: np.ndarray, mask: np.ndarray, keep_idx: list, out_npy_dir: str, out_png_dir: str, pid: str, bet: np.ndarray = None):
+    os.makedirs(out_npy_dir, exist_ok=True)
+    os.makedirs(out_png_dir, exist_ok=True)
 
-        img_slice[bet_slice == 0] = 0  # Force background to zero before crop
+    if bet is not None:
+        brain_voxels = volume[bet > 0]
+    else:
+        brain_voxels = volume
+    global_mean = brain_voxels.mean()
+    global_std = brain_voxels.std()
 
-        # Crop image and mask to brain region using BET mask
-        img_slice = crop_to_brain_region(img_slice, bet_slice)
-        mask_slice = crop_to_brain_region(mask_slice, bet_slice)
+    for i in keep_idx:
+        vol_slice = volume[:, :, i]
+        mask_slice = mask[:, :, i]
 
-        if img_slice is None or mask_slice is None:
-            with open("/Users/iujeong/0.local/8.result/log/skipped_empty_slices.log", "a") as f:
-                f.write(f"{patient_id} slice {z:03d} skipped: empty BET region\n")
-            continue
+        # 패딩 크기 정의
+        PAD_H, PAD_W = 160, 192
 
-        desired_shape = (160, 192)
-        h, w = img_slice.shape
+        # 중심 기준 패딩
+        if bet is not None:
+            bet_slice = bet[:, :, i]
+            if np.sum(bet_slice) == 0:
+                print(f"⚠️ {pid} - BET slice {i} is empty, skipping")
+                continue
+            cy, cx = center_of_mass(bet_slice)
+        else:
+            cy, cx = center_of_mass(mask_slice)
+        cy = int(round(cy))
+        cx = int(round(cx))
+        y_start = max(0, cy - PAD_H // 2)
+        x_start = max(0, cx - PAD_W // 2)
+        y_end = y_start + PAD_H
+        x_end = x_start + PAD_W
 
-        # Pad or crop image slice as needed
-        if h > desired_shape[0]:
-            img_slice = img_slice[:desired_shape[0], :]
-            h = desired_shape[0]
-        if w > desired_shape[1]:
-            img_slice = img_slice[:, :desired_shape[1]]
-            w = desired_shape[1]
+        # 슬라이스 크기에 맞춰 잘라내고, 넘치면 패딩 추가
+        vol_crop = np.zeros((PAD_H, PAD_W), dtype=vol_slice.dtype)
+        mask_crop = np.zeros((PAD_H, PAD_W), dtype=mask_slice.dtype)
 
-        pad_h = (desired_shape[0] - h) // 2
-        pad_w = (desired_shape[1] - w) // 2
-        img_slice = np.pad(img_slice,
-                           ((pad_h, desired_shape[0] - h - pad_h),
-                            (pad_w, desired_shape[1] - w - pad_w)),
-                           mode='constant', constant_values=0)
+        y_slice = slice(y_start, min(y_end, vol_slice.shape[0]))
+        x_slice = slice(x_start, min(x_end, vol_slice.shape[1]))
+        y_offset = max(0, - (cy - PAD_H // 2))
+        x_offset = max(0, - (cx - PAD_W // 2))
 
-        h, w = mask_slice.shape
+        vol_crop[y_offset:y_offset + (y_slice.stop - y_slice.start),
+                 x_offset:x_offset + (x_slice.stop - x_slice.start)] = vol_slice[y_slice, x_slice]
+        mask_crop[y_offset:y_offset + (y_slice.stop - y_slice.start),
+                  x_offset:x_offset + (x_slice.stop - x_slice.start)] = mask_slice[y_slice, x_slice]
 
-        # Pad or crop mask slice as needed
-        if h > desired_shape[0]:
-            mask_slice = mask_slice[:desired_shape[0], :]
-            h = desired_shape[0]
-        if w > desired_shape[1]:
-            mask_slice = mask_slice[:, :desired_shape[1]]
-            w = desired_shape[1]
+        vol_slice = vol_crop
+        mask_slice = mask_crop
 
-        pad_h = (desired_shape[0] - h) // 2
-        pad_w = (desired_shape[1] - w) // 2
-        mask_slice = np.pad(mask_slice,
-                            ((pad_h, desired_shape[0] - h - pad_h),
-                             (pad_w, desired_shape[1] - w - pad_w)),
-                            mode='constant', constant_values=0)
+        # Save as .npy files
+        np.save(os.path.join(out_npy_dir, f"{pid}_slice_{i:03d}_img.npy"), vol_slice)
+        np.save(os.path.join(out_npy_dir, f"{pid}_slice_{i:03d}_mask.npy"), mask_slice)
 
-        # NOTE: 3D 볼륨은 이미 정규화되었으므로, 슬라이스 후에는 BET 적용하지 않고 저장함
-        norm_slice = img_slice.astype(np.float32)
-        norm_slice[np.isclose(norm_slice, 0.0, atol=1e-4)] = 0.0
-        slice_id = f"{os.path.basename(norm_path).replace('_norm.nii.gz','')}_z{z:03}"
-        np.save(os.path.join(npy_dir, f"{slice_id}_img.npy"), norm_slice)
-        np.save(os.path.join(npy_dir, f"{slice_id}_mask.npy"), mask_slice)
+        # Normalize vol_slice using global Z-score, then clip and rescale to [0, 1]
+        z_norm = (vol_slice - global_mean) / (global_std + 1e-8)
+        z_clipped = np.clip(z_norm, -2, 2)
+        norm_slice = (z_clipped + 2) / 4  # scale to [0, 1]
+        imageio.imwrite(os.path.join(out_png_dir, f"{pid}_slice_{i:03d}_img.png"), (norm_slice * 255).astype(np.uint8))
+        # Removed saving mask PNG as per instructions
 
 
+
+# 새 함수: nom_test/nom_train에서 볼륨 불러오기
+def load_image_volume(patient_id: str, base_dir: str) -> np.ndarray:
+    img_path = os.path.join(base_dir, f"{patient_id}_norm.nii.gz")
+    if not os.path.exists(img_path):
+        raise FileNotFoundError(f"이미지 파일 없음: {img_path}")
+    return nib.load(img_path).get_fdata()
+
+# patient_id 추출 함수
+def extract_patient_id(filename: str) -> str:
+    return (filename
+        .replace("_norm.nii.gz", "")
+        .replace("_gtv_mask.nii.gz", "")
+        .replace("_bet_mask.nii.gz", "")
+        .replace("_t1c.nii.gz", "")
+        .replace(".nii.gz", ""))
+
+# 👇 test/train 자동 분기
 if __name__ == "__main__":
-    groups = ["train", "val", "test"]
-    root_mask = "/Users/iujeong/0.local/2.resample"
-    root_img = "/Users/iujeong/0.local/3.normalize"
+    input_base = "/Users/iujeong/0.local/3.normalize"
+    out_base = "/Users/iujeong/0.local/4.slice"
     csv_dir = "/Users/iujeong/0.local/8.result/csv"
-    exclude_csv = "/Users/iujeong/0.local/8.result/csv/gtv_clipping_stats.csv"
 
-    for group in groups:
-        output_root = f"/Users/iujeong/0.local/4.slice/s_{group}"
-        print(f"\nProcessing group: {group}")
-        norm_dir = os.path.join(root_img, f"n_{group}", "nii")
-        mask_dir = os.path.join(root_mask, f"r_{group}")
-        exclude = filter_patient_by_csv(exclude_csv)
-        log_path = f"/Users/iujeong/0.local/8.result/filtered_{group}.log"
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    test_ids = sorted([
+        extract_patient_id(f) for f in os.listdir(os.path.join(input_base, "n_test", "nii"))
+        if f.endswith("_norm.nii.gz")
+    ], key=extract_numeric_id)
+    train_ids = sorted([
+        extract_patient_id(f) for f in os.listdir(os.path.join(input_base, "n_train", "nii"))
+        if f.endswith("_norm.nii.gz")
+    ], key=extract_numeric_id)
+    val_ids = sorted([
+        extract_patient_id(f) for f in os.listdir(os.path.join(input_base, "n_val", "nii"))
+        if f.endswith("_norm.nii.gz")
+    ], key=extract_numeric_id)
 
-        patient_paths = sorted(glob(os.path.join(norm_dir, "*_norm.nii.gz")))
-        train_ids = [extract_patient_id(p) for p in patient_paths]
+    csv_path = os.path.join(csv_dir, "bbox_stats.csv")
 
-        location_records = []
+    for group, ids in [("test", test_ids), ("train", train_ids), ("val", val_ids)]:
+        location_log = []
+        img_dir = os.path.join(input_base, f"n_{group}", "nii")
+        npy_out = os.path.join(out_base, f"s_{group}/npy")
+        png_out = os.path.join(out_base, f"s_{group}/png")
+        csv_path = csv_path if group == "test" else (csv_path if group == "train" else csv_path)
+        exclude = []  # bbox_stats.csv에는 제외 기준 없음
+        print(f"[{group.upper()}] 환자 수: {len(ids)} | 제외 대상 없음")
+        gtv_base = os.path.join(input_base, f"n_{group}", "nii")
 
-        with open(log_path, "w") as logfile:
-            for img_path in tqdm(patient_paths):
-                patient_id = extract_patient_id(img_path)
-                if patient_id in exclude:
-                    logfile.write(f"[EXCLUDED] {patient_id} - high removed_ratio\n")
-                    continue
+        for pid in ids:
+            log_file = os.path.join("/Users/iujeong/0.local/8.result/log", f"filtered_{group}.log")
+            os.makedirs(os.path.dirname(log_file), exist_ok=True)
+            if pid in exclude:
+                print(f"제외된 환자: {pid}")
+                with open(log_file, "a") as f:
+                    f.write(f"{pid}: excluded by removed_ratio threshold\n")
+                continue
+            try:
+                gtv = load_gtv_mask(pid, gtv_base)
+                print(f"{pid} - gtv shape: {gtv.shape}, unique: {np.unique(gtv)}")
+                bet = load_bet_mask(pid, gtv_base)  # BET 마스크도 불러오기
 
-                gtv_path = os.path.join(mask_dir, f"{patient_id}_t1c_gtv_mask.nii.gz")
-                bet_path = os.path.join(mask_dir, f"{patient_id}_t1c_bet_mask.nii.gz")
+                # 중심 좌표 기록용
+                centroid = center_of_mass(gtv)
+                location_log.append({"patient_id": pid, "x": centroid[0], "y": centroid[1], "z": centroid[2]})
 
-                try:
-                    img, _ = load_image_volume(img_path)
-                    gtv, _ = load_gtv_mask(gtv_path)
-                    bet, _ = load_bet_mask(bet_path)
-                    if img.shape != gtv.shape or img.shape != bet.shape:
-                        logfile.write(f"[MISMATCH] {patient_id} - shape mismatch: img{img.shape}, gtv{gtv.shape}, bet{bet.shape}\n")
-                        continue
-                except FileNotFoundError as e:
-                    logfile.write(f"[MISSING] {patient_id} - {e}\n")
-                    continue
+                img = load_image_volume(pid, img_dir)
+                print(f"{pid} - img shape: {img.shape}, bet shape: {bet.shape}")
+                keep_idx = filter_slices_by_mask_area(gtv)
+                if len(keep_idx) == 0:
+                    print(f"⚠️  {pid} - 모든 슬라이스가 필터링됨 (keep_idx 비어있음)")
+                else:
+                    print(f"✅ {pid} - 남은 슬라이스 개수: {len(keep_idx)} / 전체: {gtv.shape[2]}")
+                print(f"{pid} - keep_idx: {keep_idx}")
+                if len(keep_idx) == 0:
+                    with open(log_file, "a") as f:
+                        f.write(f"{pid}: 0 slices remained after filtering\n")
+                else:
+                    # 저장된 슬라이스 인덱스가 연속적인지 확인
+                    sorted_idx = sorted(keep_idx)
+                    if any((sorted_idx[i+1] - sorted_idx[i]) != 1 for i in range(len(sorted_idx)-1)):
+                        with open(log_file, "a") as f:
+                            f.write(f"{pid}: warning - saved slice indices are not contiguous\n")
+                save_filtered_slices(img, gtv, keep_idx, npy_out, png_out, pid, bet=bet)
+                print(f"{pid}: saved {len(keep_idx)} slices (BET mask loaded)")
+                print(f"✅ 저장 완료: {pid}")
+            except FileNotFoundError as e:
+                print(f"파일 없음 에러: {e}")
+                # norm_log가 비어있으므로 해당 로그 저장 생략
+                continue
+            except Exception as e:
+                print(f"Skip {pid} due to unexpected error: {e}")
 
-                # Crop all 3D volumes to brain region using BET mask
-                img = crop_volume_to_brain(img, bet)
-                gtv = crop_volume_to_brain(gtv, bet)
-                bet = crop_volume_to_brain(bet, bet)
+        df_loc = pd.DataFrame(location_log)
 
-                if img is None or gtv is None or bet is None:
-                    logfile.write(f"[EMPTY] {patient_id} - empty BET region after cropping\n")
-                    continue
+    # 디버깅 요약 정보 출력
+    print("\n==== 디버깅 요약 ====")
+    for group in ["train", "test", "val"]:
+        log_path = f"/Users/iujeong/0.local/8.result/log/filtered_{group}.log"
+        total = 0
+        saved = 0
+        zero = 0
+        if os.path.exists(log_path):
+            with open(log_path, "r") as f:
+                for line in f:
+                    total += 1
+                    if "0 slices remained" in line:
+                        zero += 1
+                    elif "saved" in line:
+                        saved += 1
+        print(f"[{group}] 전체 환자 수: {total}, 저장된 환자: {saved}, 제거된 환자: {zero}")
 
-
-                img[bet == 0] = 0
-                img[np.isclose(img, 0.0, atol=1e-4)] = 0.0
-
-                keep_slices = filter_slices_by_mask_area(gtv)
-
-                if len(keep_slices) == 0:
-                    logfile.write(f"[EMPTY] {patient_id} - no valid slices\n")
-                    continue
-
-                discontinuity = np.any(np.diff(keep_slices) > 1)
-                if discontinuity:
-                    logfile.write(f"[WARNING] {patient_id} - non-contiguous slices: {keep_slices}\n")
-
-                save_filtered_slices(output_root, patient_id, img, gtv, bet, keep_slices, img_path)
-
-                com = center_of_mass(gtv)
-                location_records.append({"patient_id": patient_id, "z": int(com[2]), "y": int(com[1]), "x": int(com[0])})
-
-        os.makedirs(csv_dir, exist_ok=True)
-        csv_path = os.path.join(csv_dir, f"gtv_location_stats_{group}.csv")
-        with open(csv_path, "w", newline="") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=["patient_id", "z", "y", "x"])
-            writer.writeheader()
-            writer.writerows(location_records)
-
-    # 중복 검사
-    if len(groups) >= 2:
-        from itertools import combinations
-        group_ids = {}
-        for group in groups:
-            norm_dir = os.path.join(root_img, f"n_{group}", "nii")
-            paths = sorted(glob(os.path.join(norm_dir, "*_norm.nii.gz")))
-            group_ids[group] = set(extract_patient_id(p) for p in paths)
-
-        for a, b in combinations(groups, 2):
-            dupes = group_ids[a] & group_ids[b]
-            if dupes:
-                print(f"[DUPLICATE WARNING] {a} ∩ {b} = {dupes}")
+    # train/test ID 겹침 여부 확인
+    train_set = set(train_ids)
+    test_set = set(test_ids)
+    overlap = train_set & test_set
+    if overlap:
+        print(f"\n⚠️ 경고: Train/Test/Val에 중복된 환자 존재: {len(overlap)}명")
+        for pid in sorted(overlap):
+            print(f" - {pid}")
+    else:
+        print("\n✅ Train/Test 환자 ID 완전히 분리됨")

@@ -7,7 +7,6 @@
 import nibabel as nib
 import numpy as np
 import os
-import imageio
 import pandas as pd
 from glob import glob
 

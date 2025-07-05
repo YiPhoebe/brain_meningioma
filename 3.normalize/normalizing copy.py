@@ -7,6 +7,7 @@
 import nibabel as nib
 import numpy as np
 import os
+import imageio
 import matplotlib.pyplot as plt
 import pandas as pd
 from glob import glob
@@ -36,21 +37,19 @@ for pid, re_dir, phase in all_cases:
     # 각 슬라이스의 크기 기록 리스트
     slice_shape_stats = []
 
-    group_dir = os.path.join("/Users/iujeong/0.local/3.normalize", f"n_{phase}", "nii")
+    img_path = os.path.join(re_dir, f"{pid}_t1c_bet.nii.gz")
+    mask_path = os.path.join(re_dir, f"{pid}_t1c_gtv_mask.nii.gz")
+    bet_mask_path = os.path.join(re_dir, f"{pid}_t1c_bet_mask.nii.gz")
 
-    img_path = os.path.join(group_dir, f"{pid}_norm.nii.gz")
-    gtv_path = os.path.join(group_dir, f"{pid}_gtv_mask.nii.gz")
-    bet_path = os.path.join(group_dir, f"{pid}_bet_mask.nii.gz")
-
-    if not os.path.exists(img_path) or not os.path.exists(gtv_path) or not os.path.exists(bet_path):
+    if not os.path.exists(img_path) or not os.path.exists(mask_path) or not os.path.exists(bet_mask_path):
         print(f"{pid}: 필요한 파일 없음")
         print(f"  - img_path: {img_path}")
-        print(f"  - gtv_path: {gtv_path}")
-        print(f"  - bet_path: {bet_path}")
+        print(f"  - mask_path: {mask_path}")
+        print(f"  - bet_mask_path: {bet_mask_path}")
         continue
 
     img = nib.load(img_path).get_fdata()
-    bet_mask = nib.load(bet_path).get_fdata()
+    bet_mask = nib.load(bet_mask_path).get_fdata()
 
     # 이미지 크기도 맞춰줘야 정규화 가능
     if img.shape != bet_mask.shape:
@@ -90,7 +89,7 @@ for pid, re_dir, phase in all_cases:
         "y_min": y_min, "y_max": y_max
     })
 
-    gtv_mask = nib.load(gtv_path).get_fdata()
+    gtv_mask = nib.load(mask_path).get_fdata()
 
     # shape mismatch 처리: BET 마스크를 GTV 마스크 크기에 맞게 pad 또는 crop (업데이트 버전)
     if gtv_mask.shape != bet_mask.shape:
@@ -148,14 +147,6 @@ for pid, re_dir, phase in all_cases:
     os.makedirs(png_dir, exist_ok=True)
     os.makedirs(nii_dir, exist_ok=True)
 
-    import shutil
-
-    # 마스크도 같은 위치로 복사 (정규화는 안 함)
-    orig_bet_mask_path = os.path.join(re_dir, f"{pid}_t1c_bet_mask.nii.gz")
-    orig_gtv_mask_path = os.path.join(re_dir, f"{pid}_t1c_gtv_mask.nii.gz")
-    shutil.copy(orig_bet_mask_path, os.path.join(nii_dir, f"{pid}_bet_mask.nii.gz"))
-    shutil.copy(orig_gtv_mask_path, os.path.join(nii_dir, f"{pid}_gtv_mask.nii.gz"))
-
     nii = nib.load(img_path)  # 원래 이미지에서 affine 가져옴
     norm_nii_path = os.path.join(nii_dir, f"{pid}_norm.nii.gz")
     n_img = nib.Nifti1Image(img, affine=nii.affine)
@@ -166,10 +157,7 @@ for pid, re_dir, phase in all_cases:
     img_from_nii = nib.load(norm_nii_path).get_fdata()
     for i in range(img_from_nii.shape[2]):
         slice_img = img_from_nii[:, :, i]
-        brain_pixels_slice = slice_img[bet_mask[:, :, i] > 0]
-        if brain_pixels_slice.size == 0:
-            continue  # skip 빈 마스크
-        vmin, vmax = np.percentile(brain_pixels_slice, [1, 99])
+        vmin, vmax = np.percentile(slice_img[bet_mask[:, :, i] > 0], [1, 99])
         plt.imsave("out.png", slice_img, cmap="gray", vmin=vmin, vmax=vmax)
 
     # 슬라이스 분할은 다른 단계에서 수행

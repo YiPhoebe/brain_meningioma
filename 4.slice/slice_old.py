@@ -33,36 +33,15 @@ def load_bet_mask(patient_id: str, base_dir: str) -> np.ndarray:
         raise FileNotFoundError(f"BET 마스크 파일 없음: {mask_path}")
     return nib.load(mask_path).get_fdata()
 
-def filter_slices_by_mask_area(masks: np.ndarray, area_thresh: int = 10, z_thresh: float = 2.5):
-    """
-    각 슬라이스별 마스크의 픽셀 수를 기반으로 필터링을 수행한다.
+def filter_slices_by_mask_area(gtv_mask, area_thresh=10, z_thresh=2.5):
+    areas = np.sum(gtv_mask, axis=(1, 2))
+    z_scores = zscore(areas)
 
-    ⚠️ 단 한 번만 수행하는 중요 필터링이므로 다음 기준에 따라 신중히 수행:
-    
-    1. 픽셀 수 너무 작은 슬라이스 제거:
-        - np.sum(mask) < area_thresh 기준으로 제거
-        - 뇌수막종의 특성상 일부 슬라이스에 거의 마스크가 없을 수 있으므로, 최소 기준만 적용
-
-    2. Z-score 기반 이상치 제거:
-        - 한 환자의 슬라이스들 중 마스크 픽셀 수 리스트 생성 → [0, 32, 40, 35, 0, 400, 36, 34]
-        - Z-score를 계산하여 Z > z_thresh 또는 Z < -z_thresh 인 슬라이스 제거
-        - 이유: 종양이 갑자기 커지는 튀는 슬라이스(예: 그림자처럼 잘못 세그된 슬라이스)를 제거하여 학습의 혼란 방지
-    """
-    assert masks.ndim == 3  # (H, W, D)
-    d = masks.shape[2]
-    
-    # 슬라이스별 마스크 픽셀 수
-    areas = np.array([np.sum(masks[:, :, i]) for i in range(d)])
-
-    # 1단계: 픽셀 수 < area_thresh 제거
-    valid_idx = np.where(areas >= area_thresh)[0]
-
-    # 2단계: 
-    final_idx = valid_idx
-
-    print(f"📊 슬라이스 필터링 결과 - 전체: {d}, 유지됨: {len(final_idx)}, 제거됨: {d - len(final_idx)}")
-
-    return final_idx  # 남길 슬라이스 인덱스 리스트
+    keep_slices = []
+    for z, area, z_val in zip(range(len(areas)), areas, z_scores):
+        if area >= area_thresh and abs(z_val) < z_thresh:
+            keep_slices.append(z)
+    return keep_slices
 
 
 # 수정: BET 마스크 적용 버전 저장
@@ -218,5 +197,3 @@ if __name__ == "__main__":
             print(f" - {pid}")
     else:
         print("\n✅ Train/Test 환자 ID 완전히 분리됨")
-
-
