@@ -33,6 +33,9 @@ def load_bet_mask(patient_id: str, base_dir: str) -> np.ndarray:
         raise FileNotFoundError(f"BET 마스크 파일 없음: {mask_path}")
     return nib.load(mask_path).get_fdata()
 
+
+
+
 def filter_slices_by_mask_area(gtv_mask, area_thresh=10, z_thresh=2.5):
     areas = np.sum(gtv_mask, axis=(1, 2))
     z_scores = zscore(areas)

@@ -25,8 +25,11 @@ all_bbox_stats = []
 all_cases = []
 for d in re_dirs:
     phase = d.split("/")[-1].replace("r_", "")  # extract phase from path
-    for f in sorted(glob(os.path.join(d, "*_gtv_mask.nii.gz"))):
-        pid = os.path.basename(f).replace("_gtv_mask.nii.gz", "")
+    for f in sorted(glob(os.path.join(d, "*_t1c_gtv_mask.nii.gz"))):
+        pid = os.path.basename(f).replace("_t1c_gtv_mask.nii.gz", "")
+        # Clean up pid if it ends with "_t1c"
+        if pid.endswith("_t1c"):
+            pid = pid.replace("_t1c", "")
         all_cases.append((pid, d, phase))
 
 for pid, re_dir, phase in all_cases:
@@ -38,9 +41,9 @@ for pid, re_dir, phase in all_cases:
 
     group_dir = os.path.join("/Users/iujeong/0.local/3.normalize", f"n_{phase}", "nii")
 
-    img_path = os.path.join(group_dir, f"{pid}_norm.nii.gz")
-    gtv_path = os.path.join(group_dir, f"{pid}_gtv_mask.nii.gz")
-    bet_path = os.path.join(group_dir, f"{pid}_bet_mask.nii.gz")
+    img_path = os.path.join(re_dir, f"{pid}_t1c_bet.nii.gz")
+    gtv_path = os.path.join(re_dir, f"{pid}_t1c_gtv_mask.nii.gz")
+    bet_path = os.path.join(re_dir, f"{pid}_t1c_bet_mask.nii.gz")
 
     if not os.path.exists(img_path) or not os.path.exists(gtv_path) or not os.path.exists(bet_path):
         print(f"{pid}: 필요한 파일 없음")
@@ -65,8 +68,8 @@ for pid, re_dir, phase in all_cases:
     if np.sum(bet_mask) == 0:
         print(f"{pid}: BET 마스크가 비어 있음 (skip)")
         # 로그 저장
-        os.makedirs("/Users/iujeong/0.local/result/log", exist_ok=True)
-        with open("/Users/iujeong/0.local/result/log/skipped_cases.txt", "a") as log_file:
+        os.makedirs("/Users/iujeong/0.local/8.result/log", exist_ok=True)
+        with open("/Users/iujeong/0.local/8.result/log/skipped_cases.txt", "a") as log_file:
             log_file.write(f"{pid}: BET 마스크가 비어 있음\n")
         continue
 
@@ -92,9 +95,9 @@ for pid, re_dir, phase in all_cases:
 
     gtv_mask = nib.load(gtv_path).get_fdata()
 
-    # shape mismatch 처리: BET 마스크를 GTV 마스크 크기에 맞게 pad 또는 crop (업데이트 버전)
-    if gtv_mask.shape != bet_mask.shape:
-        target_shape = gtv_mask.shape
+    # shape mismatch 처리: BET 마스크를 이미지 크기에 맞게 pad 또는 crop
+    if img.shape != bet_mask.shape:
+        target_shape = img.shape
         current_shape = bet_mask.shape
         adjusted = np.zeros(target_shape, dtype=bet_mask.dtype)
 
@@ -106,14 +109,27 @@ for pid, re_dir, phase in all_cases:
 
         bet_mask = adjusted
 
-        # img도 다시 맞춰줘야 함
-        if img.shape != bet_mask.shape:
-            adjusted_img = np.zeros_like(bet_mask, dtype=img.dtype)
-            x = min(img.shape[0], bet_mask.shape[0])
-            y = min(img.shape[1], bet_mask.shape[1])
-            z = min(img.shape[2], bet_mask.shape[2])
-            adjusted_img[:x, :y, :z] = img[:x, :y, :z]
-            img = adjusted_img
+    # shape matching: gtv_mask and bet_mask 모두 img 기준으로 맞춤
+    def match_shape(mask, target_shape):
+        adjusted = np.zeros(target_shape, dtype=mask.dtype)
+        x = min(mask.shape[0], target_shape[0])
+        y = min(mask.shape[1], target_shape[1])
+        z = min(mask.shape[2], target_shape[2])
+        adjusted[:x, :y, :z] = mask[:x, :y, :z]
+        return adjusted
+
+    if gtv_mask.shape != img.shape:
+        print(f"{pid}: gtv_mask shape mismatch → {gtv_mask.shape} → {img.shape}")
+        gtv_mask = match_shape(gtv_mask, img.shape)
+
+    if bet_mask.shape != img.shape:
+        print(f"{pid}: bet_mask shape mismatch → {bet_mask.shape} → {img.shape}")
+        bet_mask = match_shape(bet_mask, img.shape)
+
+    print(f"{pid} shapes → img: {img.shape}, bet: {bet_mask.shape}, gtv: {gtv_mask.shape}")
+    os.makedirs("/Users/iujeong/0.local/8.result/log", exist_ok=True)
+    with open("/Users/iujeong/0.local/8.result/log/shape_check_log.txt", "a") as f:
+        f.write(f"{pid} shapes → img: {img.shape}, bet: {bet_mask.shape}, gtv: {gtv_mask.shape}\n")
 
     # GTV 바깥 제거
     original_gtv_voxels = np.sum(gtv_mask > 0)
@@ -138,8 +154,14 @@ for pid, re_dir, phase in all_cases:
     # mean, std = trimmed.mean(), trimmed.std()
     # img = (img - mean) / (std + 1e-8) 
     brain_pixels = img[bet_mask > 0]
+    if brain_pixels.size < 10:
+        print(f"{pid}: Brain pixel too small for normalization (skip)")
+        continue
     mean, std = brain_pixels.mean(), brain_pixels.std()
     img = (img - mean) / (std + 1e-8)
+
+    # === 마지막 shape 맞추기: 모든 마스크를 img 기준으로 pad 또는 crop ===
+
 
     # 정규화된 볼륨 저장
     normalized_save_dir = f"/Users/iujeong/0.local/3.normalize/n_{phase}"
@@ -151,8 +173,8 @@ for pid, re_dir, phase in all_cases:
     import shutil
 
     # 마스크도 같은 위치로 복사 (정규화는 안 함)
-    orig_bet_mask_path = os.path.join(re_dir, f"{pid}_bet_mask.nii.gz")
-    orig_gtv_mask_path = os.path.join(re_dir, f"{pid}_gtv_mask.nii.gz")
+    orig_bet_mask_path = os.path.join(re_dir, f"{pid}_t1c_bet_mask.nii.gz")
+    orig_gtv_mask_path = os.path.join(re_dir, f"{pid}_t1c_gtv_mask.nii.gz")
     # BET 마스크: 타입을 np.uint8로 변환해서 저장
     orig_bet_mask = nib.load(orig_bet_mask_path)
     orig_bet_data = orig_bet_mask.get_fdata().astype(np.uint8)
@@ -175,7 +197,9 @@ for pid, re_dir, phase in all_cases:
         if brain_pixels_slice.size == 0:
             continue  # skip 빈 마스크
         vmin, vmax = np.percentile(brain_pixels_slice, [1, 99])
-        plt.imsave("out.png", slice_img, cmap="gray", vmin=vmin, vmax=vmax)
+        filename = os.path.join(png_dir, f"{pid}_slice_{i:03d}.png")
+        plt.imsave(filename, slice_img, cmap="gray", vmin=vmin, vmax=vmax)
+        plt.close()
 
     # 슬라이스 분할은 다른 단계에서 수행
 

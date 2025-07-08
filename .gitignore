@@ -55,4 +55,6 @@ logs/
 .DS_Store
 
 # 환경 설정
-environment.yml
+environment.ymlnnUNet/
+nnUNet/
+8.result/log/background_check_log.txt
