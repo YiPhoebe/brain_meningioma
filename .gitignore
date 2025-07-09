@@ -59,3 +59,4 @@ logs/
 environment.ymlnnUNet/
 nnUNet/
 8.result/log/background_check_log.txt
+4.slice/평균값패딩.zip
