@@ -13,7 +13,7 @@ base_paths = {
 shape_records = []
 
 for split_name, folder in base_paths.items():
-    for t1c_file in (folder / "nii").glob("*_norm.nii.gz"):
+    for t1c_file in (folder).glob("*_norm.nii.gz"):
         case_id = t1c_file.name.replace("_norm.nii.gz", "")
         bet_path = t1c_file.parent / f"{case_id}_bet_mask.nii.gz"
         gtv_path = t1c_file.parent / f"{case_id}_gtv_mask.nii.gz"

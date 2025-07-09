@@ -77,8 +77,6 @@ def filter_slices_by_mask_area(masks: np.ndarray, area_thresh: int = 10):
     return final_idx  # 남길 슬라이스 인덱스 리스트
 
 
-
-
  # 수정: BET 마스크 적용 버전 저장
 def save_filtered_slices(
     volume: np.ndarray,
@@ -104,8 +102,8 @@ def save_filtered_slices(
     def padding(arr, target_shape, bet_slice=None):
         h, w = arr.shape
         th, tw = target_shape
-        pad_h = (th - h) // 2
-        pad_w = (tw - w) // 2
+        pad_h = max((th - h) // 2, 0)
+        pad_w = max((tw - w) // 2, 0)
 
         if bet_slice is not None:
             background = arr[bet_slice == 0]
@@ -134,7 +132,7 @@ def save_filtered_slices(
     global_mean = brain_voxels.mean()
     global_std = brain_voxels.std()
 
-    target_shape = (160, 192)
+    target_shape = (256, 256)
 
     # --- Clip the mask using BET mask before slicing ---
     if bet is not None:
@@ -149,15 +147,28 @@ def save_filtered_slices(
             if coords.size > 0:
                 x_min, y_min = coords.min(axis=0)
                 x_max, y_max = coords.max(axis=0) + 1
-                vol_slice = vol_slice[x_min:x_max, y_min:y_max]
-                mask_slice = mask_slice[x_min:x_max, y_min:y_max]
-                bet_slice = bet[:, :, i][x_min:x_max, y_min:y_max]
+
+                # Define padding margins
+                pad_left = 10
+                pad_right = 10
+                pad_top = 10
+                pad_bottom = 10
+
+                # Apply margin and ensure within bounds
+                x_min_pad = max(0, x_min - pad_left)
+                x_max_pad = min(vol_slice.shape[0], x_max + pad_right)
+                y_min_pad = max(0, y_min - pad_bottom)
+                y_max_pad = min(vol_slice.shape[1], y_max + pad_top)
+
+                vol_slice = vol_slice[x_min_pad:x_max_pad, y_min_pad:y_max_pad]
+                mask_slice = mask_slice[x_min_pad:x_max_pad, y_min_pad:y_max_pad]
+                bet_slice = bet[:, :, i][x_min_pad:x_max_pad, y_min_pad:y_max_pad]
             else:
                 bet_slice = bet[:, :, i]
         else:
             bet_slice = None
 
-        # Pad or resize to target shape (160, 192)
+        # Pad or resize to target shape ()
         vol_slice = padding(vol_slice, target_shape, bet_slice=bet_slice)
         mask_slice = padding(mask_slice, target_shape, bet_slice=bet_slice)
 
@@ -191,7 +202,7 @@ def extract_patient_id(filename: str) -> str:
 
 
 
-# 👇 test/train/val 자동 분기
+# 👇 test/train 자동 분기
 if __name__ == "__main__":
     input_base = "/Users/iujeong/0.local/3.normalize"
     out_base = "/Users/iujeong/0.local/4.slice"

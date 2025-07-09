@@ -25,7 +25,7 @@ def resample_volume(input_path, output_path, target_image_path):
     import numpy as np
     data = np.asanyarray(resampled.data.data)
     if is_mask:
-        data = data.astype(np.uint8)
+        data = np.round(data).astype(np.uint8)
     else:
         data = data.astype(np.float32)
     tensor = torch.from_numpy(data)

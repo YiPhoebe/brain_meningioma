@@ -9,15 +9,17 @@ from scipy.ndimage import center_of_mass
 
 
 
-def get_mask_center(mask: np.ndarray):
-    coords = np.argwhere(mask > 0)
-    if coords.size == 0:
-        return None
-    y_min, x_min = coords.min(axis=0)[:2]
-    y_max, x_max = coords.max(axis=0)[:2]
-    cy = (y_min + y_max) // 2
-    cx = (x_min + x_max) // 2
-    return cy, cx
+# def get_mask_center(mask: np.ndarray):
+#     coords = np.argwhere(mask > 0)
+#     if coords.size == 0:
+#         return None
+#     y_min, x_min = coords.min(axis=0)[:2]
+#     y_max, x_max = coords.max(axis=0)[:2]
+#     cy = (y_min + y_max) // 2
+#     cx = (x_min + x_max) // 2
+#     return cy, cx
+
+
 # 로그 루트 경로 상수
 LOG_ROOT = "/Users/iujeong/0.local/8.result/log"
 
@@ -77,8 +79,6 @@ def filter_slices_by_mask_area(masks: np.ndarray, area_thresh: int = 10):
     return final_idx  # 남길 슬라이스 인덱스 리스트
 
 
-
-
  # 수정: BET 마스크 적용 버전 저장
 def save_filtered_slices(
     volume: np.ndarray,
@@ -101,28 +101,19 @@ def save_filtered_slices(
     import numpy as np
     from skimage.transform import resize
 
-    def padding(arr, target_shape, bet_slice=None):
-        h, w = arr.shape
+    def pad_slice(slice_arr, target_shape, bet_slice=None):
+        """
+        슬라이스가 (160,192)보다 크면 중앙에서 잘라서 target shape으로 만들고, 작으면 에러남
+        """
+        h, w = slice_arr.shape
         th, tw = target_shape
-        pad_h = (th - h) // 2
-        pad_w = (tw - w) // 2
-
-        if bet_slice is not None:
-            background = arr[bet_slice == 0]
-            if background.size > 0:
-                bg_mean = background.mean()
-            else:
-                bg_mean = arr.min()
-        else:
-            bg_mean = arr.min()
-
-        padded = np.pad(
-            arr,
-            ((pad_h, th - h - pad_h), (pad_w, tw - w - pad_w)),
-            mode='constant',
-            constant_values=bg_mean
-        )
-        return padded
+        if h < th or w < tw:
+            raise ValueError(f"Slice shape {slice_arr.shape} is smaller than target shape {target_shape}, cannot crop.")
+        # Central crop only, no padding
+        start_h = (h - th) // 2
+        start_w = (w - tw) // 2
+        cropped = slice_arr[start_h:start_h+th, start_w:start_w+tw]
+        return cropped
 
     # --- Normalization logic as requested ---
     if bet is not None:
@@ -136,7 +127,7 @@ def save_filtered_slices(
 
     target_shape = (160, 192)
 
-    # --- Clip the mask using BET mask before slicing ---
+    # --- 슬라이스하기 전에 BET 마스크를 사용하여 마스크 자르기 ---
     if bet is not None:
         mask = mask * (bet > 0)
 
@@ -145,21 +136,26 @@ def save_filtered_slices(
         mask_slice = mask[:, :, i]
         if bet is not None:
             bet_bin = (bet[:, :, i] > 0.5).astype(np.uint8)
-            coords = np.argwhere(bet_bin)
-            if coords.size > 0:
-                x_min, y_min = coords.min(axis=0)
-                x_max, y_max = coords.max(axis=0) + 1
+            bet_voxel_coords = np.argwhere(bet_bin)
+            if bet_voxel_coords.size > 0:
+                x_min, y_min = bet_voxel_coords.min(axis=0)
+                x_max, y_max = bet_voxel_coords.max(axis=0) + 1
+
+                # # 패딩 마진 없음, 정확히 BET 영역으로 자르기
+                # x_min_pad = max(0, x_min)
+                # x_max_pad = min(vol_slice.shape[0], x_max)
+                # y_min_pad = max(0, y_min)
+                # y_max_pad = min(vol_slice.shape[1], y_max)
+
                 vol_slice = vol_slice[x_min:x_max, y_min:y_max]
                 mask_slice = mask_slice[x_min:x_max, y_min:y_max]
-                bet_slice = bet[:, :, i][x_min:x_max, y_min:y_max]
-            else:
-                bet_slice = bet[:, :, i]
+                bet_slice = bet[:, :, i][x_min:x_max, y_min:y_max]   # xmin-pad_bottom:xmax+pad_top, y_min-pad_left:ymax+pad_right
         else:
             bet_slice = None
 
-        # Pad or resize to target shape (160, 192)
-        vol_slice = padding(vol_slice, target_shape, bet_slice=bet_slice)
-        mask_slice = padding(mask_slice, target_shape, bet_slice=bet_slice)
+        # BET 영역으로 자른 후 → 중심 기준으로 (160, 192) 크기로 자르기 (패딩 없음)
+        vol_slice = pad_slice(vol_slice, target_shape, bet_slice=bet_slice)
+        mask_slice = pad_slice(mask_slice, target_shape, bet_slice=bet_slice)
 
         print(f"{pid} - cropped shape: {vol_slice.shape}")
         if log_file is not None:
@@ -170,6 +166,24 @@ def save_filtered_slices(
         np.save(os.path.join(out_npy_dir, f"{pid}_slice_{i:03d}_mask.npy"), mask_slice)
 
     return "bet"
+
+
+# BET mask 가 1인 부분(뇌 조직) 좌표만 추출
+# crop할 bounding box 계산의 시작점
+def pad_directory_slices(input_dir, output_dir, target_shape=(160, 192)):
+    """
+    BET 마스크의 각 슬라이스에서 bounding box로 crop한 뒤,
+    결과가 target_shape보다 크면 중심 기준 crop.
+    작으면 에러 발생. padding이나 resize는 수행하지 않음.
+    """
+    import numpy as np
+    import os
+    os.makedirs(output_dir, exist_ok=True)
+    for fname in os.listdir(input_dir):
+        if fname.endswith("_img.npy") or fname.endswith("_mask.npy"):
+            arr = np.load(os.path.join(input_dir, fname))
+            # Padding/central cropping step is now removed, just save as is
+            np.save(os.path.join(output_dir, fname), arr)
 
 
 # 새 함수: nom_test/nom_train에서 볼륨 불러오기
@@ -191,7 +205,7 @@ def extract_patient_id(filename: str) -> str:
 
 
 
-# 👇 test/train/val 자동 분기
+# 👇 test/train 자동 분기
 if __name__ == "__main__":
     input_base = "/Users/iujeong/0.local/3.normalize"
     out_base = "/Users/iujeong/0.local/4.slice"

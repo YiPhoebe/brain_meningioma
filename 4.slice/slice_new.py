@@ -6,180 +6,35 @@ import pandas as pd
 from scipy.stats import zscore
 import imageio
 from scipy.ndimage import center_of_mass
+import tqdm
+import re
 
-
-
-def get_mask_center(mask: np.ndarray):
-    coords = np.argwhere(mask > 0)
-    if coords.size == 0:
-        return None
-    y_min, x_min = coords.min(axis=0)[:2]
-    y_max, x_max = coords.max(axis=0)[:2]
-    cy = (y_min + y_max) // 2
-    cx = (x_min + x_max) // 2
-    return cy, cx
-# 로그 루트 경로 상수
-LOG_ROOT = "/Users/iujeong/0.local/8.result/log"
-
-# Numeric patient ID extraction helper for sorting
-unexpected_error_cases = []
+# ============================== #
+#         Utility Functions      #
+# ============================== #
 
 def extract_numeric_id(pid: str) -> int:
-    return int(pid.split("-")[3])
+    nums = re.findall(r'\d+', pid)
+    return int(''.join(nums)) if nums else 0
 
-def load_gtv_mask(patient_id: str, base_dir: str) -> np.ndarray:
-    """
-    주어진 환자 ID에 대해 GTV 마스크를 불러온다.
-    base_dir에는 GTV 파일들이 patient_id_gtv_mask.nii.gz 형태로 저장되어 있어야 함
-    """
-    mask_path = os.path.join(base_dir, f"{patient_id}_gtv_mask.nii.gz")
-    if not os.path.exists(mask_path):
-        raise FileNotFoundError(f"GTV 마스크 파일 없음: {mask_path}")
-    return nib.load(mask_path).get_fdata()
+def pad_to_shape(arr, target_shape=(160, 192), mode="constant"):
+    h, w = arr.shape
+    pad_h = max(target_shape[0] - h, 0)
+    pad_w = max(target_shape[1] - w, 0)
 
-def load_bet_mask(patient_id: str, base_dir: str) -> np.ndarray:
-    """
-    주어진 환자 ID에 대해 BET 마스크를 불러온다.
-    base_dir에는 patient_id_bet_mask.nii.gz 형태로 저장되어 있어야 함
-    """
-    mask_path = os.path.join(base_dir, f"{patient_id}_bet_mask.nii.gz")
-    if not os.path.exists(mask_path):
-        raise FileNotFoundError(f"BET 마스크 파일 없음: {mask_path}")
-    return nib.load(mask_path).get_fdata()
+    pad_top = pad_h // 2
+    pad_bottom = pad_h - pad_top
+    pad_left = pad_w // 2
+    pad_right = pad_w - pad_left
 
+    final = np.pad(arr, ((pad_top, pad_bottom), (pad_left, pad_right)), mode=mode)
 
+    # Crop if necessary
+    h_final, w_final = final.shape
+    start_h = max((h_final - target_shape[0]) // 2, 0)
+    start_w = max((w_final - target_shape[1]) // 2, 0)
+    return final[start_h:start_h+target_shape[0], start_w:start_w+target_shape[1]]
 
-def filter_slices_by_mask_area(masks: np.ndarray, area_thresh: int = 10):
-    """
-    각 슬라이스별 마스크의 픽셀 수를 기반으로 필터링을 수행한다.
-
-    ⚠️ 단 한 번만 수행하는 중요 필터링이므로 다음 기준에 따라 신중히 수행:
-    
-    1. 픽셀 수 너무 작은 슬라이스 제거:
-        - np.sum(mask) < area_thresh 기준으로 제거
-        - 뇌수막종의 특성상 일부 슬라이스에 거의 마스크가 없을 수 있으므로, 최소 기준만 적용
-
-    """
-    assert masks.ndim == 3  # (H, W, D)
-    d = masks.shape[2]
-    
-    # 슬라이스별 마스크 픽셀 수
-    areas = np.array([np.sum(masks[:, :, i]) for i in range(d)])
-
-    # 1단계: 픽셀 수 < area_thresh 제거
-    valid_idx = np.where(areas >= area_thresh)[0]
-
-    # 2단계: 
-    final_idx = valid_idx
-
-    print(f"📊 슬라이스 필터링 결과 - 전체: {d}, 유지됨: {len(final_idx)}, 제거됨: {d - len(final_idx)}")
-
-    return final_idx  # 남길 슬라이스 인덱스 리스트
-
-
-
-
- # 수정: BET 마스크 적용 버전 저장
-def save_filtered_slices(
-    volume: np.ndarray,
-    mask: np.ndarray,
-    keep_idx: list,
-    out_npy_dir: str,
-    out_png_dir: str,
-    pid: str,
-    bet: np.ndarray = None,
-    log_file: str = None
-):
-    """
-    BET 마스크의 각 슬라이스에서 bounding box로 crop,
-    crop 결과가 target_shape보다 작으면 중심 기준 padding, 크면 resize
-    bbox center는 무시 (BET만 사용)
-    """
-    os.makedirs(out_npy_dir, exist_ok=True)
-    os.makedirs(out_png_dir, exist_ok=True)
-    import imageio
-    import numpy as np
-    from skimage.transform import resize
-
-    def padding(arr, target_shape, bet_slice=None):
-        h, w = arr.shape
-        th, tw = target_shape
-        pad_h = (th - h) // 2
-        pad_w = (tw - w) // 2
-
-        if bet_slice is not None:
-            background = arr[bet_slice == 0]
-            if background.size > 0:
-                bg_mean = background.mean()
-            else:
-                bg_mean = arr.min()
-        else:
-            bg_mean = arr.min()
-
-        padded = np.pad(
-            arr,
-            ((pad_h, th - h - pad_h), (pad_w, tw - w - pad_w)),
-            mode='constant',
-            constant_values=bg_mean
-        )
-        return padded
-
-    # --- Normalization logic as requested ---
-    if bet is not None:
-        brain_voxels = volume[bet > 0]
-    else:
-        brain_voxels = volume
-    if brain_voxels.size == 0:
-        raise ValueError(f"{pid}: BET 마스크 영역 내에 이미지가 없음 (비정상)")
-    global_mean = brain_voxels.mean()
-    global_std = brain_voxels.std()
-
-    target_shape = (160, 192)
-
-    # --- Clip the mask using BET mask before slicing ---
-    if bet is not None:
-        mask = mask * (bet > 0)
-
-    for i in keep_idx:
-        vol_slice = volume[:, :, i]
-        mask_slice = mask[:, :, i]
-        if bet is not None:
-            bet_bin = (bet[:, :, i] > 0.5).astype(np.uint8)
-            coords = np.argwhere(bet_bin)
-            if coords.size > 0:
-                x_min, y_min = coords.min(axis=0)
-                x_max, y_max = coords.max(axis=0) + 1
-                vol_slice = vol_slice[x_min:x_max, y_min:y_max]
-                mask_slice = mask_slice[x_min:x_max, y_min:y_max]
-                bet_slice = bet[:, :, i][x_min:x_max, y_min:y_max]
-            else:
-                bet_slice = bet[:, :, i]
-        else:
-            bet_slice = None
-
-        # Pad or resize to target shape (160, 192)
-        vol_slice = padding(vol_slice, target_shape, bet_slice=bet_slice)
-        mask_slice = padding(mask_slice, target_shape, bet_slice=bet_slice)
-
-        print(f"{pid} - cropped shape: {vol_slice.shape}")
-        if log_file is not None:
-            with open(log_file, "a") as f:
-                f.write(f"{pid} - cropped shape: {vol_slice.shape}\n")
-
-        np.save(os.path.join(out_npy_dir, f"{pid}_slice_{i:03d}_img.npy"), vol_slice)
-        np.save(os.path.join(out_npy_dir, f"{pid}_slice_{i:03d}_mask.npy"), mask_slice)
-
-    return "bet"
-
-
-# 새 함수: nom_test/nom_train에서 볼륨 불러오기
-def load_image_volume(patient_id: str, base_dir: str) -> np.ndarray:
-    img_path = os.path.join(base_dir, f"{patient_id}_norm.nii.gz")
-    if not os.path.exists(img_path):
-        raise FileNotFoundError(f"이미지 파일 없음: {img_path}")
-    return nib.load(img_path).get_fdata()
-
-# patient_id 추출 함수
 def extract_patient_id(filename: str) -> str:
     return (filename
         .replace("_norm.nii.gz", "")
@@ -188,42 +43,211 @@ def extract_patient_id(filename: str) -> str:
         .replace("_t1c.nii.gz", "")
         .replace(".nii.gz", ""))
 
+def filter_slices_by_mask_area(masks: np.ndarray, area_thresh: int = 10):
+    """
+    각 슬라이스별 마스크의 픽셀 수를 기반으로 필터링을 수행한다.
+    """
+    assert masks.ndim == 3  # (H, W, D)
+    d = masks.shape[2]
+    areas = np.array([np.sum(masks[:, :, i]) for i in range(d)])
+    valid_idx = np.where(areas >= area_thresh)[0]
+    final_idx = valid_idx
+    print(f"📊 슬라이스 필터링 결과 - 전체: {d}, 유지됨: {len(final_idx)}, 제거됨: {d - len(final_idx)}")
+    return final_idx
+
+def load_image_volume(patient_id: str, base_dir: str) -> np.ndarray:
+    img_path = os.path.join(base_dir, f"{patient_id}_norm.nii.gz")
+    if not os.path.exists(img_path):
+        raise FileNotFoundError(f"이미지 파일 없음: {img_path}")
+    return nib.load(img_path).get_fdata()
+
+def load_gtv_mask(pid: str, base_dir: str) -> np.ndarray:
+    path = os.path.join(base_dir, f"{pid}_gtv_mask.nii.gz")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"GTV 마스크 없음: {path}")
+    return nib.load(path).get_fdata()
+
+def load_bet_mask(pid: str, base_dir: str) -> np.ndarray:
+    path = os.path.join(base_dir, f"{pid}_bet_mask.nii.gz")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"BET 마스크 없음: {path}")
+    return nib.load(path).get_fdata()
 
 
 
-# 👇 test/train/val 자동 분기
+# ====== Logical ordering of function definitions ====== #
+
+def pad_to_shape(arr, target_shape=(160, 192), mode="constant"):
+    h, w = arr.shape
+    pad_h = max(target_shape[0] - h, 0)
+    pad_w = max(target_shape[1] - w, 0)
+
+    pad_top = pad_h // 2
+    pad_bottom = pad_h - pad_top
+    pad_left = pad_w // 2
+    pad_right = pad_w - pad_left
+
+    final = np.pad(arr, ((pad_top, pad_bottom), (pad_left, pad_right)), mode=mode)
+
+    # Crop if necessary
+    h_final, w_final = final.shape
+    start_h = max((h_final - target_shape[0]) // 2, 0)
+    start_w = max((w_final - target_shape[1]) // 2, 0)
+    return final[start_h:start_h+target_shape[0], start_w:start_w+target_shape[1]]
+
+def crop_by_bbox(img, x_min, x_max, y_min, y_max):
+    """
+    Crop a 2D image or mask given bounding box coordinates.
+    """
+    return img[x_min:x_max, y_min:y_max]
+
+def save_filtered_slices(img, gtv, keep_idx, npy_out, png_out, pid, bet=None, log_file=None):
+    """
+    Save filtered slices as .npy files.
+    """
+    os.makedirs(npy_out, exist_ok=True)
+    center_type = "bet"
+    for idx in keep_idx:
+        img_slice = pad_to_shape(img[:, :, idx], target_shape=(160, 192))
+        mask_slice = pad_to_shape(gtv[:, :, idx], target_shape=(160, 192))
+        # Save .npy files
+        np.save(os.path.join(npy_out, f"{pid}_slice{idx:03d}_img.npy"), img_slice)
+        np.save(os.path.join(npy_out, f"{pid}_slice{idx:03d}_mask.npy"), mask_slice)
+    return center_type
+
+def save_debug_crop(debug_crop_dir, patient_id, slice_idx, img_crop, mask_crop):
+    """
+    Save debug PNGs for cropped image and mask.
+    """
+    os.makedirs(debug_crop_dir, exist_ok=True)
+    img_norm = (img_crop / (img_crop.max() + 1e-8) * 255).astype(np.uint8)
+    mask_norm = (mask_crop * 255).astype(np.uint8)
+    imageio.imwrite(
+        os.path.join(debug_crop_dir, f"{patient_id}_slice{slice_idx:03d}_img.png"),
+        img_norm
+    )
+    imageio.imwrite(
+        os.path.join(debug_crop_dir, f"{patient_id}_slice{slice_idx:03d}_mask.png"),
+        mask_norm
+    )
+
+def process_and_save_slices(input_dir, output_dir, bbox_df, target_shape=(160, 192), mode="constant"):
+    """
+    Processes and saves padded/cropped slices from input_dir to output_dir using bbox_df.
+    """
+    img_files = sorted([f for f in os.listdir(input_dir) if f.endswith("_img.npy")])
+    for img_fname in tqdm.tqdm(img_files):
+        base_name = img_fname.replace("_img.npy", "")
+        mask_fname = f"{base_name}_mask.npy"
+
+        img_path = os.path.join(input_dir, img_fname)
+        mask_path = os.path.join(input_dir, mask_fname)
+
+        if not os.path.exists(mask_path):
+            print(f"⚠️ Missing mask for {img_fname}")
+            continue
+
+        img = np.load(img_path)
+        mask = np.load(mask_path)
+
+        if img.shape != mask.shape:
+            print(f"❌ Shape mismatch: {img_fname}")
+            print(f"   img shape: {img.shape}, mask shape: {mask.shape}")
+            continue
+
+        print(f"🔍 Processing: {img_fname}")
+        print(f"   Original shape: {img.shape}")
+
+        if bbox_df is None:
+            print("❌ bbox_df is required for bbox-based cropping.")
+            return
+
+        row = bbox_df[bbox_df["slice_name"] == base_name]
+        if row.empty:
+            print(f"⚠️ No bbox info for {base_name}")
+            continue
+
+        # Check if image is large enough for cropping to target_shape
+        if img.shape[0] < target_shape[0] or img.shape[1] < target_shape[1]:
+            print(f"❌ {img_fname} skipped: shape {img.shape} smaller than target {target_shape}")
+            continue
+
+        bbox = row.iloc[0]
+        x_min = int(bbox["x_min"])
+        x_max = int(bbox["x_max"])
+        y_min = int(bbox["y_min"])
+        y_max = int(bbox["y_max"])
+
+        # Check bbox bounds
+        if x_max > img.shape[0] or y_max > img.shape[1]:
+            print(f"❌ {img_fname} skipped: bbox ({x_min},{x_max},{y_min},{y_max}) exceeds image shape {img.shape}")
+            continue
+
+        print(f"   Crop coords: x=({x_min}, {x_max}), y=({y_min}, {y_max})")
+        print(f"   Crop shape: {img[x_min:x_max, y_min:y_max].shape}")
+
+        img_crop = crop_by_bbox(img, x_min, x_max, y_min, y_max)
+        mask_crop = crop_by_bbox(mask, x_min, x_max, y_min, y_max)
+
+        m = re.match(r"(.+)_slice(\d+)", base_name)
+        if m:
+            patient_id = m.group(1)
+            slice_idx = int(m.group(2))
+        else:
+            patient_id = base_name
+            slice_idx = 0
+
+        print(f"   Final cropped shape: {img_crop.shape}")
+        img_out_fname = f"{patient_id}_slice{slice_idx:03d}_img.npy"
+        mask_out_fname = f"{patient_id}_slice{slice_idx:03d}_mask.npy"
+        np.save(os.path.join(output_dir, img_out_fname), img_crop)
+        np.save(os.path.join(output_dir, mask_out_fname), mask_crop)
+
+# ============================== #
+#         Main Execution         #
+# ============================== #
+
 if __name__ == "__main__":
-    input_base = "/Users/iujeong/0.local/3.normalize"
+    # ----------- Constants ----------- #
+    LOG_ROOT = "/Users/iujeong/0.local/8.result/log"
+    normalize_base = "/Users/iujeong/0.local/3.normalize"
     out_base = "/Users/iujeong/0.local/4.slice"
     csv_dir = "/Users/iujeong/0.local/8.result/csv"
+    bbox_csv_path = os.path.join(csv_dir, "bet_bbox_stats.csv")
+    bbox_df = pd.read_csv(bbox_csv_path)
+    # --------------------------------- #
 
-    test_ids = sorted([
-        extract_patient_id(f) for f in os.listdir(os.path.join(input_base, "n_test"))
-        if f.endswith("_norm.nii.gz")
-    ], key=extract_numeric_id)
-    train_ids = sorted([
-        extract_patient_id(f) for f in os.listdir(os.path.join(input_base, "n_train"))
-        if f.endswith("_norm.nii.gz")
-    ], key=extract_numeric_id)
-    val_ids = sorted([
-        extract_patient_id(f) for f in os.listdir(os.path.join(input_base, "n_val"))
-        if f.endswith("_norm.nii.gz")
-    ], key=extract_numeric_id)
+    group_dirs = {
+        "test": os.path.join(normalize_base, "n_test"),
+        "train": os.path.join(normalize_base, "n_train"),
+        "val": os.path.join(normalize_base, "n_val"),
+    }
 
-    csv_path = os.path.join(csv_dir, "bbox_stats.csv")
+    def list_patient_ids(group_dir):
+        return sorted([
+            extract_patient_id(f)
+            for f in os.listdir(group_dir)
+            if f.endswith("_norm.nii.gz")
+        ], key=extract_numeric_id)
+
+    test_ids = list_patient_ids(group_dirs["test"])
+    train_ids = list_patient_ids(group_dirs["train"])
+    val_ids = list_patient_ids(group_dirs["val"])
+
+    csv_path = os.path.join(csv_dir, "bet_bbox_stats.csv")
 
     for group, ids in [("test", test_ids), ("train", train_ids), ("val", val_ids)]:
         # 그룹별 예기치 않은 에러 케이스 리스트 초기화
         unexpected_error_cases = []
         # Initialize location log for centroid recording
         location_log = []
-        img_dir = os.path.join(input_base, f"n_{group}")
+        img_dir = group_dirs[group]
         npy_out = os.path.join(out_base, f"s_{group}/npy")
         png_out = os.path.join(out_base, f"s_{group}/png")
         csv_path = csv_path if group == "test" else (csv_path if group == "train" else csv_path)
         exclude = []  # bbox_stats.csv에는 제외 기준 없음
         print(f"[{group.upper()}] 환자 수: {len(ids)} | 제외 대상 없음")
-        gtv_base = os.path.join(input_base, f"n_{group}")
+        gtv_base = group_dirs[group]
 
         for pid in ids:
             print(f"[{group.upper()}] pid: {pid}, img_dir: {img_dir}, gtv_base: {gtv_base}")
@@ -310,7 +334,6 @@ if __name__ == "__main__":
                         with open(log_file, "a") as f:
                             f.write(f"{pid}: ⚠️ 저장된 슬라이스 인덱스가 연속되지 않음\n")
                             f.flush()
-                        # 비연속적이면 별도 로그에도 기록
                         with open(os.path.join(LOG_ROOT, "non_contiguous_slices.log"), "a") as f:
                             f.write(f"{pid}\n")
                             f.flush()
@@ -320,7 +343,6 @@ if __name__ == "__main__":
                     center_label = "bbox 중심 기준 crop" if center_type == "bbox" else "BET 중심 기준 crop"
                     f.write(f"{pid}: {len(keep_idx)}개 슬라이스 저장 완료 (✅ {center_label})\n")
                     f.flush()
-                # After saving, check that slice files were saved
                 saved_slices = len([f for f in os.listdir(npy_out) if f.startswith(pid) and f.endswith("_img.npy")])
                 if saved_slices == 0:
                     print(f"{pid}: 저장된 슬라이스 없음 (파일 확인)")
@@ -333,11 +355,9 @@ if __name__ == "__main__":
                     f.flush()
             except FileNotFoundError as e:
                 print(f"파일 없음 에러: {e}")
-                # norm_log가 비어있으므로 해당 로그 저장 생략
                 continue
             except Exception as e:
                 err_msg = str(e)
-
                 if "No slices saved due to BET masking" in err_msg:
                     err_msg_kor = "BET 마스킹으로 인해 저장된 슬라이스 없음"
                 elif "GTV is completely outside the BET region" in err_msg:
@@ -354,24 +374,19 @@ if __name__ == "__main__":
                     err_msg_kor = "슬라이스 인덱스가 범위를 벗어남"
                 else:
                     err_msg_kor = err_msg
-
                 print(f"{pid}: ❌ 예기치 않은 오류로 제외됨 → {err_msg_kor}")
                 with open(log_file, "a") as f:
                     f.write(f"{pid}: ❌ 예기치 않은 오류 발생 → {err_msg_kor}\n")
                     f.flush()
                 unexpected_error_cases.append((pid, err_msg_kor))
 
-        # Save GTV centroid locations for this group
         df_loc = pd.DataFrame(location_log)
         df_loc.to_csv(f"/Users/iujeong/0.local/8.result/csv/gtv_location_stats_{group}.csv", index=False)
-
-        # Print unexpected errors for the current group if any
         if unexpected_error_cases:
             print("\n❌ 예기치 않게 제외된 케이스 목록:")
             for pid, err in unexpected_error_cases:
                 print(f"- {pid}: {err}")
 
-    # 디버깅 요약 정보 출력
     print("\n==== 디버깅 요약 ====")
     for group in ["train", "test", "val"]:
         log_path = os.path.join(LOG_ROOT, f"filtered_{group}.log")
@@ -388,7 +403,6 @@ if __name__ == "__main__":
                         saved += 1
         print(f"[{group}] 전체 환자 수: {total}, 저장된 환자: {saved}, 제거된 환자: {zero}")
 
-    # train/test ID 겹침 여부 확인
     train_set = set(train_ids)
     test_set = set(test_ids)
     overlap = train_set & test_set
@@ -398,6 +412,3 @@ if __name__ == "__main__":
             print(f" - {pid}")
     else:
         print("\n✅ Train/Test 환자 ID 완전히 분리됨")
-
-
-

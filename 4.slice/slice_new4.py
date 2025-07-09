@@ -9,15 +9,9 @@ from scipy.ndimage import center_of_mass
 
 
 
-def get_mask_center(mask: np.ndarray):
-    coords = np.argwhere(mask > 0)
-    if coords.size == 0:
-        return None
-    y_min, x_min = coords.min(axis=0)[:2]
-    y_max, x_max = coords.max(axis=0)[:2]
-    cy = (y_min + y_max) // 2
-    cx = (x_min + x_max) // 2
-    return cy, cx
+
+
+
 # 로그 루트 경로 상수
 LOG_ROOT = "/Users/iujeong/0.local/8.result/log"
 
@@ -77,7 +71,17 @@ def filter_slices_by_mask_area(masks: np.ndarray, area_thresh: int = 10):
     return final_idx  # 남길 슬라이스 인덱스 리스트
 
 
+def get_mask(mask: np.ndarray):
+    coords = np.argwhere(mask > 0)
+    if coords.size == 0:
+        return None
+    y_min, x_min = coords.min(axis=0)[:2]
+    y_max, x_max = coords.max(axis=0)[:2]
 
+    cy = (y_min + y_max) // 2
+    cx = (x_min + x_max) // 2
+
+    return cy, cx
 
  # 수정: BET 마스크 적용 버전 저장
 def save_filtered_slices(
@@ -100,6 +104,8 @@ def save_filtered_slices(
     import imageio
     import numpy as np
     from skimage.transform import resize
+
+
 
     def padding(arr, target_shape, bet_slice=None):
         h, w = arr.shape
@@ -141,14 +147,28 @@ def save_filtered_slices(
         mask = mask * (bet > 0)
 
     for i in keep_idx:
+        if bet is not None and np.sum(bet[:, :, i]) == 0:
+            continue  # Skip slice if BET is empty
         vol_slice = volume[:, :, i]
         mask_slice = mask[:, :, i]
         if bet is not None:
             bet_bin = (bet[:, :, i] > 0.5).astype(np.uint8)
             coords = np.argwhere(bet_bin)
             if coords.size > 0:
-                x_min, y_min = coords.min(axis=0)
-                x_max, y_max = coords.max(axis=0) + 1
+                x_min_b, y_min_b = coords.min(axis=0)
+                x_max_b, y_max_b = coords.max(axis=0) + 1
+
+                # Define dynamic padding based on half the slice dimensions
+                pad_top = vol_slice.shape[0] // 2
+                pad_bottom = vol_slice.shape[0] // 2
+                pad_left = vol_slice.shape[1] // 2
+                pad_right = vol_slice.shape[1] // 2
+
+                x_min = x_min_b - pad_top
+                x_max = x_max_b + pad_bottom
+                y_min = y_min_b - pad_left
+                y_max = y_max_b + pad_right
+
                 vol_slice = vol_slice[x_min:x_max, y_min:y_max]
                 mask_slice = mask_slice[x_min:x_max, y_min:y_max]
                 bet_slice = bet[:, :, i][x_min:x_max, y_min:y_max]
@@ -157,7 +177,7 @@ def save_filtered_slices(
         else:
             bet_slice = None
 
-        # Pad or resize to target shape (160, 192)
+        # Pad or resize to target shape ()
         vol_slice = padding(vol_slice, target_shape, bet_slice=bet_slice)
         mask_slice = padding(mask_slice, target_shape, bet_slice=bet_slice)
 
