@@ -50,6 +50,7 @@ logs/
 *.nii.gz
 
 # Slice 저장 디렉토리
+.zip
 
 # 시스템 파일
 .DS_Store
