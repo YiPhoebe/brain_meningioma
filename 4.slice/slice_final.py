@@ -152,22 +152,9 @@ def save_filtered_slices(
             if coords.size > 0:
                 x_min, y_min = coords.min(axis=0)
                 x_max, y_max = coords.max(axis=0) + 1
-
-                # Define padding margins
-                pad_left = 10
-                pad_right = 10
-                pad_top = 10
-                pad_bottom = 10
-
-                # Apply margin and ensure within bounds
-                x_min_pad = max(0, x_min - pad_left)
-                x_max_pad = min(vol_slice.shape[0], x_max + pad_right)
-                y_min_pad = max(0, y_min - pad_bottom)
-                y_max_pad = min(vol_slice.shape[1], y_max + pad_top)
-
-                vol_slice = vol_slice[x_min_pad:x_max_pad, y_min_pad:y_max_pad]
-                mask_slice = mask_slice[x_min_pad:x_max_pad, y_min_pad:y_max_pad]
-                bet_slice = bet[:, :, i][x_min_pad:x_max_pad, y_min_pad:y_max_pad]
+                vol_slice = vol_slice[x_min:x_max, y_min:y_max]
+                mask_slice = mask_slice[x_min:x_max, y_min:y_max]
+                bet_slice = bet[:, :, i][x_min:x_max, y_min:y_max]
             else:
                 bet_slice = bet[:, :, i]
         else:

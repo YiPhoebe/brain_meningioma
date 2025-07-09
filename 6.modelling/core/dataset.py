@@ -29,9 +29,9 @@ class MeningiomaDataset(Dataset):
         if image is None or mask is None:
             raise ValueError(f"[ERROR] {self.files[idx]} → image or mask is None")
 
-        if image.shape != (1, 160, 192):
+        if image.shape != (1, 256, 256):
             raise ValueError(f"[ERROR] {self.files[idx]} → image shape mismatch: {image.shape}")
-        if mask.shape != (1, 160, 192):
+        if mask.shape != (1, 256, 256):
             raise ValueError(f"[ERROR] {self.files[idx]} → mask shape mismatch: {mask.shape}")
 
         return torch.tensor(image, dtype=torch.float32), torch.tensor(mask, dtype=torch.float32)
