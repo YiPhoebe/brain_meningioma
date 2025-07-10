@@ -87,17 +87,10 @@ for pid, re_dir, phase in all_cases:
             log_file.write(f"{pid}: BET 마스크가 비어 있음\n")
         continue
 
-    # [추가] 전체 brain bounding box 계산
-    x_any, y_any = np.any(bet_mask, axis=(1, 2)), np.any(bet_mask, axis=(0, 2))
-    x_min, x_max = np.where(x_any)[0][[0, -1]]
-    y_min, y_max = np.where(y_any)[0][[0, -1]]
-
-    # margin 추가
-    margin = 5
-    x_min = max(0, x_min - margin)
-    x_max = min(bet_mask.shape[0], x_max + margin)
-    y_min = max(0, y_min - margin)
-    y_max = min(bet_mask.shape[1], y_max + margin)
+    # [수정] 3D 전체 voxel 기준 bounding box 계산
+    coords = np.argwhere(bet_mask > 0)  # (z, y, x)
+    x_min, y_min, _ = coords.min(axis=0)
+    x_max, y_max, _ = coords.max(axis=0)
 
     # bounding box 정보 저장
     bbox_stats.append({

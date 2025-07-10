@@ -115,47 +115,12 @@ def save_filtered_slices(
     os.makedirs(out_png_dir, exist_ok=True)
     
 
-    # 내부 정의된 서브 함수
-    def padding(arr, target_shape, bet_slice=None):
-        """
-        2D 슬라이스(arr)를 target_shape 크기로 padding함. (강제 resize랑은 다름)
-        """
-
-        if bet_slice is not None:
-            # bet_slice가 없으면 이미지 최소값을 패딩값으로 씀
-            background = arr[bet_slice == 0]
-            if background.size > 0:
-                bg_mean = background.mean()
-            else:
-                # bet slice가 있으면 뇌 조직 바깥 (bet == 0) 부분만 추출해서 평균값을 패딩으로 사용
-                bg_mean = arr.min()
-        else:
-            bg_mean = arr.min()
-
-        coords = np.argwhere(bet_slice > 0)
-        if coords.size > 0:
-            x_min, y_min = coords.min(axis=0)
-            x_max, y_max = coords.max(axis=0) + 1
-
-        arr = arr[x_min:x_max,y_min:y_max]
-        h, w = arr.shape
-        th, tw = target_shape
-        pad_h = (th - h) // 2
-        pad_w = (tw - w) // 2
-
-        padded = np.pad(
-            arr,
-            ((pad_h, th - h - pad_h), (pad_w, tw - w - pad_w)),
-            mode='constant',
-            constant_values=bg_mean
-        )
-        return padded
-
-
-    # coords = np.argwhere(bet > 0)
-    # if coords.size > 0:
-    #     x_min, y_min, _ = coords.min(axis=0)
-    #     x_max, y_max, _ = coords.max(axis=0) + 1
+    coords = np.argwhere(bet > 0)
+    if coords.size > 0:
+        x_min, y_min, _ = coords.min(axis=0)
+        x_max, y_max, _ = coords.max(axis=0) + 1
+    else:
+        raise ValueError(f"{pid}: BET 마스크 영역 내에 이미지가 없음 (비정상)")
 
     # --- 정규화 처리 (Normalization) ---
     # BET 마스크가 있으면 뇌 영역만 intensity 통계 산출, 없으면 전체 이미지 사용
@@ -197,14 +162,22 @@ def save_filtered_slices(
     if bet is not None:
         mask = mask * (bet > 0)
 
-    # bbox_h = x_max - x_min
-    # bbox_w = y_max - y_min
-    # pad_h = (target_h - bbox_h) // 2
-    # pad_w = (target_w - bbox_w) // 2
-    # x_min_crop = x_min - pad_h
-    # x_max_crop = x_min_crop + target_h
-    # y_min_crop = x_min + pad_bottom
-    # y_max_crop = x_max + target_w
+
+    if log_file is not None:
+        with open(log_file, "a") as f:
+            f.write(f"3D xmin xmax ymin ymax-->: {x_min}, {x_max}, {y_min}, {y_max} \n")
+
+    H, W = volume.shape[0:2]
+    bbox_h = x_max - x_min
+    bbox_w = y_max - y_min
+    pad_h = (target_h - bbox_h) // 2
+    pad_w = (target_w - bbox_w) // 2
+    x_min_crop = max(x_min - pad_h,0)
+    x_max_crop = min(x_min_crop + target_h,H)
+    x_min_crop = x_max_crop - target_h
+    y_min_crop = max(y_min - pad_w,0)
+    y_max_crop = min(y_min_crop + target_w,W)
+    y_min_crop = y_max_crop - target_w
     # 슬라이스 인덱스(keep_idx)에 대해 반복 처리
     for i in keep_idx:
         vol_slice = volume[:, :, i]  # i번째 슬라이스 추출 (이미지)
@@ -212,37 +185,14 @@ def save_filtered_slices(
 
         # 새로운 BET 마스크 기반 per-slice bounding box crop 로직
         if bet is not None:
-            # 슬라이스마다 BET 마스크에서 bounding box 계산
-            # bet_slice = bet[:, :, i]
-            # coords = np.argwhere(bet_slice > 0)
-            # if coords.size > 0:
-            #     x_min, y_min = coords.min(axis=0)
-            #     x_max, y_max = coords.max(axis=0) + 1
-
-                bbox_h = x_max - x_min
-                bbox_w = y_max - y_min
-
-                pad_top = (target_h - bbox_h) // 2
-                pad_bottom = target_h - bbox_h - pad_top
-                pad_left = (target_w - bbox_w) // 2
-                pad_right = target_w - bbox_w - pad_left
-
-                H, W = vol_slice.shape
-
-                # x_min_crop = x_min - pad_top
-                # x_max_crop = x_max + pad_bottom
-                x_min_crop = max(x_min - pad_top, 0)
-                x_max_crop = min(x_max + pad_bottom, H)
-                y_min_crop = max(y_min - pad_left, 0)
-                y_max_crop = min(y_max + pad_right, W)
 
                 vol_slice = vol_slice[x_min_crop:x_max_crop, y_min_crop:y_max_crop]
                 mask_slice = mask_slice[x_min_crop:x_max_crop, y_min_crop:y_max_crop]
-                bet_slice = bet_slice[x_min_crop:x_max_crop, y_min_crop:y_max_crop]
+                # bet_slice = bet_slice[x_min_crop:x_max_crop, y_min_crop:y_max_crop]
             # else:
             #     bet_slice = None
-        else:
-            bet_slice = None
+        # else:
+        #     bet_slice = None
 
 
         # 타겟 크기(160, 192)로 패딩으로 크기 조정
@@ -251,9 +201,10 @@ def save_filtered_slices(
             if log_file is not None:
                 with open(log_file, "a") as f:
                     f.write("작은 사이즈--> 패딩\n")
-            vol_slice = padding(vol_slice, target_shape, bet_slice=bet_slice)
-            mask_slice = padding(mask_slice, target_shape, bet_slice=bet_slice)
+            # vol_slice = padding(vol_slice, target_shape, bet_slice=bet_slice)
+            # mask_slice = padding(mask_slice, target_shape, bet_slice=bet_slice)
         
+        if (vol_slice.shape != (target_h, target_w)):
             print ('Error-->: shape 오류')
             if log_file is not None:
                 with open(log_file, "a") as f:
@@ -265,10 +216,10 @@ def save_filtered_slices(
             with open(log_file, "a") as f:
                 f.write(f"{pid} - cropped shape: {vol_slice.shape}\n")
 
-        # Reduce dtype size before saving
+        # dtype 축소 (float32, uint8로)
         vol_slice = vol_slice.astype(np.float32)
         mask_slice = mask_slice.astype(np.uint8)
-
+        
         # 슬라이스 저장 (npy 형식)
         np.save(os.path.join(out_npy_dir, f"{pid}_slice_{i:03d}_img.npy"), vol_slice)
         np.save(os.path.join(out_npy_dir, f"{pid}_slice_{i:03d}_mask.npy"), mask_slice)
@@ -339,7 +290,7 @@ if __name__ == "__main__":
 
         for pid in ids:
             print(f"[{group.upper()}] pid: {pid}, img_dir: {img_dir}, gtv_base: {gtv_base}")
-            log_file = os.path.join(LOG_ROOT, f"filtered_{group}.log")
+            log_file = os.path.join(LOG_ROOT, f"filtered_{group}_3DB.log")
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
             with open(log_file, "a") as f:
                 f.write(f"[{group.upper()}] pid: {pid}, img_dir: {img_dir}, gtv_base: {gtv_base}\n")
@@ -397,7 +348,7 @@ if __name__ == "__main__":
                 with open(log_file, "a") as f:
                     f.write(f"{pid} - img shape: {img.shape}, bet shape: {bet.shape}\n")
                     f.flush()
-                keep_idx = filter_slices_by_mask_area(gtv)
+                keep_idx = filter_slices_by_mask_area(gtv * (bet>0))
                 if len(keep_idx) == 0:
                     print(f"⚠️  {pid} - 모든 슬라이스가 필터링됨 (keep_idx 비어있음)")
                     with open(log_file, "a") as f:
@@ -504,7 +455,7 @@ if __name__ == "__main__":
     # 디버깅 요약 정보 출력
     print("\n==== 디버깅 요약 ====")
     for group in ["train", "test", "val"]:
-        log_path = os.path.join(LOG_ROOT, f"filtered_{group}.log")
+        log_path = os.path.join(LOG_ROOT, f"filtered_{group}_3DB.log")
         total = 0
         saved = 0
         zero = 0

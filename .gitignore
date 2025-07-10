@@ -29,7 +29,6 @@ data/
 outputs/
 runs/
 logs/
-*.csv
 *.pth
 *.ckpt
 *.npz

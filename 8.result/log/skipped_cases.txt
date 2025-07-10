@@ -2,11 +2,3 @@ BraTS-MEN-RT-0005-1: GTV too small after clipping
 BraTS-MEN-RT-0285-1: GTV too small after clipping
 BraTS-MEN-RT-0466-1: GTV too small after clipping
 BraTS-MEN-RT-0585-1: GTV too small after clipping
-BraTS-MEN-RT-0005-1: GTV too small after clipping
-BraTS-MEN-RT-0285-1: GTV too small after clipping
-BraTS-MEN-RT-0466-1: GTV too small after clipping
-BraTS-MEN-RT-0585-1: GTV too small after clipping
-BraTS-MEN-RT-0005-1: GTV too small after clipping
-BraTS-MEN-RT-0285-1: GTV too small after clipping
-BraTS-MEN-RT-0466-1: GTV too small after clipping
-BraTS-MEN-RT-0585-1: GTV too small after clipping
