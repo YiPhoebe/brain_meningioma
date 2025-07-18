@@ -1,0 +1,2 @@
+epoch,train_loss,val_loss,dice,thresh_0.3,thresh_0.5,thresh_0.7
+1,0.5716,0.8939,0.1061,0.1056,0.1061,0.1067

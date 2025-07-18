@@ -9,6 +9,7 @@ df = pd.read_csv('/Users/iujeong/0.local/8.result/csv/bet_bbox_stats.csv')
 df['bbox_width'] = df['x_max'] - df['x_min']
 df['bbox_height'] = df['y_max'] - df['y_min']
 
+
 def plot_distribution(data, col, color, title, xlabel):
     plt.figure(figsize=(10, 5))
     sns.histplot(data[col], bins=30, kde=True, color=color, edgecolor='black', alpha=0.3)
@@ -28,8 +29,12 @@ def plot_distribution(data, col, color, title, xlabel):
     plt.savefig(f'/Users/iujeong/0.local/3.normalize/hist/{col}_distribution.png')
     plt.show()
 
+palette = sns.color_palette("Paired")
+skyblue = palette[1]
+pink = palette[5]
+
 # Width 그래프 (빨간색)
-plot_distribution(df, 'bbox_width', 'red', 'Width Distribution of Slices', 'Width (pixels)')
+plot_distribution(df, 'bbox_width', 'pink', 'Width Distribution of Slices', 'Width (pixels)')
 
 # Height 그래프 (파란색)
-plot_distribution(df, 'bbox_height', 'blue', 'Height Distribution of Slices', 'Height (pixels)')
+plot_distribution(df, 'bbox_height', 'skyblue', 'Height Distribution of Slices', 'Height (pixels)')

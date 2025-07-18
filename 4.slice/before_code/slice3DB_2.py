@@ -6,6 +6,7 @@ import pandas as pd
 from scipy.stats import zscore
 import imageio
 from scipy.ndimage import center_of_mass
+from nibabel.orientations import aff2axcodes, axcodes2ornt, ornt_transform, apply_orientation
 
 
 # 로그 루트 경로 상수
@@ -48,7 +49,14 @@ def load_gtv_mask(patient_id: str, gtv_dir: str) -> np.ndarray:
     mask_path = os.path.join(gtv_dir, f"{patient_id}_gtv_mask.nii.gz")
     if not os.path.exists(mask_path):
         raise FileNotFoundError(f"GTV 마스크 파일 없음: {mask_path}")
-    return nib.load(mask_path).get_fdata()
+    nii = nib.load(mask_path)
+    data = nii.get_fdata()
+    affine = nii.affine
+    src = aff2axcodes(affine)
+    dst = ('L', 'P', 'S')
+    trans = ornt_transform(axcodes2ornt(src), axcodes2ornt(dst))
+    aligned_data = apply_orientation(data, trans)
+    return aligned_data
 
 
 
@@ -60,7 +68,14 @@ def load_bet_mask(patient_id: str, bet_dir: str) -> np.ndarray:
     mask_path = os.path.join(bet_dir, f"{patient_id}_bet_mask.nii.gz")
     if not os.path.exists(mask_path):
         raise FileNotFoundError(f"BET 마스크 파일 없음: {mask_path}")
-    return nib.load(mask_path).get_fdata()
+    nii = nib.load(mask_path)
+    data = nii.get_fdata()
+    affine = nii.affine
+    src = aff2axcodes(affine)
+    dst = ('L', 'P', 'S')
+    trans = ornt_transform(axcodes2ornt(src), axcodes2ornt(dst))
+    aligned_data = apply_orientation(data, trans)
+    return aligned_data
 
 
 
@@ -155,7 +170,7 @@ def save_filtered_slices(
 
 
 
-    target_h, target_w = 160, 192  # 패딩 및 크롭 후 저장할 타겟 높이, 너비
+    target_h, target_w = 192, 160  # 패딩 및 크롭 후 저장할 타겟 높이, 너비 (세로 192, 가로 160)
     target_shape = (target_h, target_w)
 
     # --- BET 마스크를 이용해 마스크를 클리핑 ---
@@ -186,15 +201,15 @@ def save_filtered_slices(
 
         # 새로운 BET 마스크 기반 per-slice bounding box crop 로직
         if bet is not None:
-
-                vol_slice = vol_slice[x_min_crop:x_max_crop, y_min_crop:y_max_crop]
-                mask_slice = mask_slice[x_min_crop:x_max_crop, y_min_crop:y_max_crop]
-                # bet_slice = bet_slice[x_min_crop:x_max_crop, y_min_crop:y_max_crop]
-            # else:
-            #     bet_slice = None
+            vol_slice = vol_slice[x_min_crop:x_max_crop, y_min_crop:y_max_crop]
+            mask_slice = mask_slice[x_min_crop:x_max_crop, y_min_crop:y_max_crop]
+            # bet_slice = bet_slice[x_min_crop:x_max_crop, y_min_crop:y_max_crop]
         # else:
         #     bet_slice = None
 
+        # 👇 Flip slices horizontally to compensate for NIfTI orientation correction
+        vol_slice = np.fliplr(vol_slice)
+        mask_slice = np.fliplr(mask_slice)
 
         # 타겟 크기(160, 192)로 패딩으로 크기 조정
         if (vol_slice.shape[0] < target_h or vol_slice.shape[1] < target_w):
@@ -205,11 +220,21 @@ def save_filtered_slices(
             # vol_slice = padding(vol_slice, target_shape, bet_slice=bet_slice)
             # mask_slice = padding(mask_slice, target_shape, bet_slice=bet_slice)
         
-        if (vol_slice.shape != (target_h, target_w)):
-            print ('Error-->: shape 오류')
+        if vol_slice.shape != (target_h, target_w):
+            # If smaller, pad
+            pad_h = max(0, target_h - vol_slice.shape[0])
+            pad_w = max(0, target_w - vol_slice.shape[1])
+            pad_top = pad_h // 2
+            pad_bottom = pad_h - pad_top
+            pad_left = pad_w // 2
+            pad_right = pad_w - pad_left
+            vol_slice = np.pad(vol_slice, ((pad_top, pad_bottom), (pad_left, pad_right)), mode='constant')
+            mask_slice = np.pad(mask_slice, ((pad_top, pad_bottom), (pad_left, pad_right)), mode='constant')
+
             if log_file is not None:
                 with open(log_file, "a") as f:
-                    f.write("Error-->: shape 오류\n")
+                    f.write("🔧 패딩 적용: vol_slice padded from "
+                            f"{vol_slice.shape} to {(target_h, target_w)}\n")
 
         print(f"{pid} - cropped shape: {vol_slice.shape}")
 
@@ -235,8 +260,15 @@ def load_image_volume(patient_id: str, img_dir: str) -> np.ndarray:
     # 파일 존재 여부 확인
     if not os.path.exists(img_path):
         raise FileNotFoundError(f"이미지 파일 없음: {img_path}")
-    # NIfTI 파일을 불러와 numpy 배열로 반환
-    return nib.load(img_path).get_fdata()
+    # NIfTI 파일을 불러와 numpy 배열로 반환 (정위 정렬 적용)
+    nii = nib.load(img_path)
+    data = nii.get_fdata()
+    affine = nii.affine
+    src = aff2axcodes(affine)
+    dst = ('L', 'P', 'S')
+    trans = ornt_transform(axcodes2ornt(src), axcodes2ornt(dst))
+    aligned_data = apply_orientation(data, trans)
+    return aligned_data
 
 
 # patient_id 추출 함수
@@ -279,8 +311,8 @@ if __name__ == "__main__":
         # Initialize location log for centroid recording
         location_log = []
         img_dir = os.path.join(input_base, f"n_{group}")
-        npy_out = os.path.join(out_base, f"s_{group}/npy")
-        png_out = os.path.join(out_base, f"s_{group}/png")
+        npy_out = os.path.join(out_base, f"s_{group}2", "npy")
+        png_out = os.path.join(out_base, f"s_{group}2", "png")
         csv_path = csv_path if group == "test" else (csv_path if group == "train" else csv_path)
         exclude = []  # bbox_stats.csv에는 제외 기준 없음
         print(f"[{group.upper()}] 환자 수: {len(ids)} | 제외 대상 없음")
@@ -291,7 +323,7 @@ if __name__ == "__main__":
 
         for pid in ids:
             print(f"[{group.upper()}] pid: {pid}, img_dir: {img_dir}, gtv_base: {gtv_base}")
-            log_file = os.path.join(LOG_ROOT, f"filtered_{group}_3DB.log")
+            log_file = os.path.join(LOG_ROOT, f"filtered_{group}_3DB_2.log")
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
             with open(log_file, "a") as f:
                 f.write(f"[{group.upper()}] pid: {pid}, img_dir: {img_dir}, gtv_base: {gtv_base}\n")
@@ -376,7 +408,7 @@ if __name__ == "__main__":
                             f.write(f"{pid}: ⚠️ 저장된 슬라이스 인덱스가 연속되지 않음\n")
                             f.flush()
                         # 비연속적이면 별도 로그에도 기록
-                        with open(os.path.join(LOG_ROOT, "non_contiguous_slices.log"), "a") as f:
+                        with open(os.path.join(LOG_ROOT, "non_contiguous_slices_2.log"), "a") as f:
                             f.write(f"{pid}\n")
                             f.flush()
                 # Extract bbox_coords from bet_bbox_stats.csv
@@ -456,7 +488,7 @@ if __name__ == "__main__":
     # 디버깅 요약 정보 출력
     print("\n==== 디버깅 요약 ====")
     for group in ["train", "test", "val"]:
-        log_path = os.path.join(LOG_ROOT, f"filtered_{group}_3DB.log")
+        log_path = os.path.join(LOG_ROOT, f"filtered_{group}_3DB_2.log")
         total = 0
         saved = 0
         zero = 0

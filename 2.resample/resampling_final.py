@@ -1,3 +1,5 @@
+
+
 import os
 from pathlib import Path
 import torch
@@ -37,7 +39,6 @@ def resample_volume(input_path, output_path, target_image_path):
 split_dirs = ["b_test", "b_train", "b_val"]
 
 selected_cases = []
-missing_cases = []
 
 for split in split_dirs:
     output_dir = output_root / split.replace("b_", "r_")
@@ -61,16 +62,7 @@ for split in split_dirs:
             resample_volume(bet_mask_path, output_dir / f"{case_id}_t1c_bet_mask.nii.gz", t1c_resampled_path)
             selected_cases.append(case_id)
         else:
-            missing = []
-            if not t1c_path.exists():
-                missing.append("T1C")
-            if not gtv_path.exists():
-                missing.append("GTV")
-            if not bet_mask_path.exists():
-                missing.append("BET")
-            msg = f"❌ Missing {', '.join(missing)} for {case_id} in {split}\n"
-            print(msg)
-            missing_cases.append(msg)
+            print(f"❌ Missing file(s) for {case_id} in {split}")
 
 print("\n📏 Verifying shapes match for each case...\n")
 log_path = Path("/Users/iujeong/0.local/2.resample") / "resample_shape_mismatch.log"
@@ -107,8 +99,3 @@ with open(log_path, "w") as log_file:
                 print(err_msg)
                 log_file.write(err_msg)
 print(f"\n🔍 Shape mismatch log saved to: {log_path}")
-
-missing_log_path = output_root / "missing_files.log"
-with open(missing_log_path, "w") as f:
-    f.writelines(missing_cases)
-print(f"📝 Missing file log saved to: {missing_log_path}")
