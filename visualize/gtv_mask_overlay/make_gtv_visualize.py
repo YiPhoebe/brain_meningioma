@@ -94,7 +94,7 @@ def save_concatenated_image(original_path, gtv_overlay_path, gtv_bet_overlay_pat
         font = ImageFont.load_default()
 
     title_height = font_size + 10
-    total_width = sum(widths)
+    total_width = sum(widths) + 10 * (len(images) - 1)
     max_height = max(heights) + title_height
 
     new_img = Image.new("RGB", (total_width, max_height), (0, 0, 0))
@@ -106,7 +106,7 @@ def save_concatenated_image(original_path, gtv_overlay_path, gtv_bet_overlay_pat
         text_bbox = draw.textbbox((0, 0), titles[i], font=font)
         text_width = text_bbox[2] - text_bbox[0]
         draw.text((x_offset + (im.size[0] - text_width) // 2, 0), titles[i], fill=(255, 255, 255), font=font)
-        x_offset += im.size[0]
+        x_offset += im.size[0] + 10  # Add gap between images
 
     new_img.save(save_path)
     print(f"Saved concatenated image with titles: {save_path}")

@@ -1,0 +1,9 @@
+test:
+  score_id_slice: 0.7396090626716614
+  score_id_flat: 0.7714190681775411
+  score_aslice: 0.7760749459266663
+valid:
+  score_id_slice: 0.6775295324623585
+  score_id_flat: 0.7220790646970272
+  score_aslice: 0.6328896880149841
+groups: []
