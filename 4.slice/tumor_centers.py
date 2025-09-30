@@ -100,4 +100,4 @@ for root in root_dirs:
 df = pd.DataFrame(records)
 csv_path = "/Users/iujeong/0.local/4.slice/tumor_centers.csv"
 df.to_csv(csv_path, index=False)
-print(f"Saved tumor center coordinates to: {csv_path}")
+print(f"Saved tumor center coordinates to : {csv_path}")

@@ -1,0 +1,47 @@
+{
+  "Frontal": [
+    "Frontal Pole",
+    "Superior Frontal Gyrus",
+    "Middle Frontal Gyrus",
+    "Inferior Frontal Gyrus, pars triangularis",
+    "Inferior Frontal Gyrus, pars opercularis",
+    "Precentral Gyrus",
+    "Frontal Medial Cortex",
+    "Frontal Orbital Cortex"
+  ],
+  "Parietal": [
+    "Postcentral Gyrus",
+    "Superior Parietal Lobule",
+    "Supramarginal Gyrus, anterior division",
+    "Supramarginal Gyrus, posterior division",
+    "Angular Gyrus",
+    "Precuneus Cortex"
+  ],
+  "Temporal": [
+    "Temporal Pole",
+    "Superior Temporal Gyrus, anterior division",
+    "Superior Temporal Gyrus, posterior division",
+    "Middle Temporal Gyrus, anterior division",
+    "Middle Temporal Gyrus, posterior division",
+    "Inferior Temporal Gyrus, anterior division",
+    "Inferior Temporal Gyrus, posterior division",
+    "Heschl's Gyrus (includes H1 and H2)",
+    "Planum Temporale",
+    "Temporal Occipital Fusiform Cortex",
+    "Temporal Fusiform Cortex, anterior division",
+    "Temporal Fusiform Cortex, posterior division"
+  ],
+  "Occipital": [
+    "Lateral Occipital Cortex, superior division",
+    "Lateral Occipital Cortex, inferior division",
+    "Occipital Pole"
+  ],
+  "Cingulate": [
+    "Cingulate Gyrus, anterior division",
+    "Cingulate Gyrus, posterior division",
+    "Paracingulate Gyrus"
+  ],
+  "Insula": [
+    "Insular Cortex"
+  ]
+}

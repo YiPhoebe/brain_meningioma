@@ -1,0 +1,15 @@
+test:
+  score_id_slice: 0.7096530103683472
+  score_id_flat: 0.7500955629348754
+  iou_id_flat: 0.636710861697793
+  hd95_id_flat: 29.346384642124175
+  hd95_id_flat_variance: 877.21314530399
+  score_aslice: 0.7465588450431824
+valid:
+  score_id_slice: 0.7116811728791187
+  score_id_flat: 0.7548597078574332
+  iou_id_flat: 0.6513664666171136
+  hd95_id_flat: 32.42856756386004
+  hd95_id_flat_variance: 1170.709322267457
+  score_aslice: 0.7673296332359314
+groups: []

@@ -1,0 +1,153 @@
+문항,문제,작성 코드,점수,피드백
+1,"### 문제 01. 라이브러리 import
+
+다음 라이브러리들을 import 하세요: pandas, numpy, seaborn, matplotlib.pyplot","# 여기에 답안을 작성하세요
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt",1,✅ 모든 라이브러리 import 성공
+2,"### 문제 02. 데이터 불러오기
+
+'Clean_Dataset.csv' 파일을 읽어 df에 저장하고 상위 5개 행을 출력하세요.","# 여기에 답안을 작성하세요
+df = pd.read_csv('/Users/iujeong/Desktop/ujeong/02. 취업준비/AICE/AI 능력시험 AICE Associate 교재 실습파일/Clean_Dataset.csv')
+df.head()",1,✅
+3,"### 문제 03. 데이터프레임 구조 확인
+
+데이터프레임의 전체 행/열 개수, 결측치 현황을 확인하세요.","# 여기에 답안을 작성하세요
+df.shape
+df.isna().sum()",1,✅
+4,"### 문제 04. 항공사 종류 확인
+
+airline 컬럼의 고유값 개수를 answer_04_1에 저장하고,
+가장 탑승객 수가 많은 항공사 이름을 answer_04_2에 저장한 뒤 출력하세요.","# 여기에 답안을 작성하세요
+answer_04_1 = df.value_counts(subset='airline')
+print(answer_04_1)
+
+answer_04_2 = 'Vistara'",0.5,❌ airline 컬럼의 .nunique() 또는 .value_counts() 누락
+5,"### 문제 05. 탑승 클래스 시각화
+
+df를 대상으로, class 컬럼의 분포를 countplot으로 시각화하세요.  
+	•	제목: ""탑승 클래스 분포""  
+	•	x축: ""클래스""  
+	•	y축: ""탑승객 수""  
+시각화 결과는 plt.show()로 출력하세요.","# 여기에 답안을 작성하세요
+sns.countplot(data=df, x='class')
+plt.title(""탑승 클래스 분포"")
+plt.xlabel(""클래스"")
+plt.ylabel(""탑승객 수"")
+plt.show()",1,✅
+6,"### 문제 06. 출발 도시별 평균 가격
+
+출발 도시(source_city)별 평균 항공권 가격을 내림차순으로 출력하세요.","# 여기에 답안을 작성하세요
+print(df.groupby(by=['source_city'])['price'].mean())",0,❌ 'Arrival Delay in Minutes' 결측치 median 대체 누락
+7,"### 문제 07. 결측치 처리
+
+duration 컬럼의 결측치를 중앙값으로 대체하세요.","# 여기에 답안을 작성하세요
+df['duration'].fillna(df['duration'].median())",1,✅ 정답입니다. duration 컬럼 결측치를 중앙값으로 적절히 대체했어요.
+8,"### 문제 08. 조건 필터링
+
+탑승 클래스가 'Economy'이고 남은 일수(days_left)가 10일 이하인 항공편만 추출해 df_short에 저장하고, 그 개수를 출력하세요.","# 여기에 답안을 작성하세요
+df_short = df[(df['class'] == 'Economy') & (df['days_left'] < 10)]
+print(df_short.shape)",1,"✅ 조건 필터링, 변수 저장, 개수 출력 모두 정확히 수행함"
+9,"### 문제 09. 상관관계 분석
+
+데이터프레임 df에서 수치형 변수들만 추출하여, 변수 간 상관계수를 heatmap으로 시각화하세요.  
+  
+•	annot=True, cmap='coolwarm'  
+•	figsize=(10, 6)  
+•	제목은 ""수치형 변수 상관관계""로 지정  
+•	plt.show()로 출력까지 포함하세요.","# 여기에 답안을 작성하세요
+
+df_num = df.select_dtypes(include='number').corr()
+
+plt.figure(figsize=(10, 6))
+sns.heatmap(data=df_num, annot=True, cmap='coolwarm')
+plt.title(""수치형 변수 상관관계"")
+plt.show()",1,✅
+10,"### 문제 10. 원핫 인코딩
+
+'source_city'와 'destination_city' 컬럼에 대해 get_dummies로 원핫 인코딩하세요. 결과는 df_encoded에 저장하세요.","# 여기에 답안을 작성하세요
+
+df_encoded = pd.get_dummies(data=df, columns=['source_city', 'destination_city'], drop_first=True)",0,❌ train_test_split 후 RobustScaler 사용 여부 확인 필요
+11,"### 문제 11. 스케일링
+
+df를 다음 조건에 따라 전처리 및 스케일링하세요:  
+	•	독립변수 X: duration, days_left  
+	•	종속변수 y: price  
+  
+아래 조건에 따라 훈련/검증 데이터를 나눈 뒤 스케일링을 수행하세요:  
+	•	훈련 데이터: X_train, y_train  
+	•	검증 데이터: X_valid, y_valid  
+	•	비율: 80:20, random_state=42  
+	•	스케일링: MinMaxScaler 사용  
+	•	X_train은 fit_transform()으로  
+	•	X_valid는 transform()으로 스케일링  
+  
+결과를 각각 X_train_scaled, X_valid_scaled에 저장하세요.","# 여기에 답안을 작성하세요
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+
+X = df[['duration', 'days_left']]
+y = df['price']
+
+X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2, random_state=42)
+
+scaler = MinMaxScaler()
+
+X_train = scaler.fit_transform(X_train)
+X_valid = scaler.transform(X_valid)",1,✅
+12,"### 문제 12. RandomForest 회귀 모델
+
+이전 문제에서 생성한 X_train_scaled, X_valid_scaled, y_train, y_valid를 사용하여 회귀 모델을 학습하세요.  
+	•	sklearn.ensemble.RandomForestRegressor 사용  
+	•	random_state=42 지정  
+	•	예측 결과는 y_pred_rf에 저장  
+	•	평균절대오차(MAE)를 rf_mae에 저장하고 출력하세요","# 여기에 답안을 작성하세요
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error
+
+
+rf = RandomForestRegressor(random_state=42)
+
+rf.fit(X_train, y_train)
+
+y_pred_rf = rf.predict(X_valid)
+rf_mae = mean_absolute_error(y_valid, y_pred_rf)
+print(rf_mae)",1,✅
+13,"### 문제 13. 딥러닝 회귀 모델
+
+TensorFlow를 사용하여 다음 조건의 회귀 모델을 구성하고 학습하세요.  
+	•	입력 데이터: X_train_scaled, y_train  
+	•	검증 데이터: X_valid_scaled, y_valid  
+	•	구조:  
+	•	입력층: Dense(128) + Dropout(0.3)  
+	•	은닉층: Dense(64)  
+	•	출력층: Dense(1)  
+	•	하이퍼파라미터:  
+	•	optimizer: adam, loss: mse  
+	•	epochs=30, batch_size=16","# 여기에 답안을 작성하세요
+
+model = Sequential()
+
+model.add(Dense(128, activation='relu', input_shape=(X_train.shape[1], )))
+model.add(Dropout(0.3))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(1))
+
+model.compile(optimizer='adam', loss='mse', metrics=['mse'])
+
+history = model.fit(X_train, y_train, epochs=30, batch_size=16)",1,✅
+14,"### 문제 14. 딥러닝 회귀 모델
+
+Matplotlib 라이브러리를 활용해서 학습 MSE와 검증 MSE를 그래프로 시각화하세요.  
+	•	1개의 그래프에 학습 mse와 검증 mse 2가지를 모두 표시하세요.  
+	•	각각의 범례를 'mse', 'val_mse'로 표시하세요.  
+	•	그래프의 제목은 'Model MSE'로 지정하세요.  
+	•	X축 레이블은 'Epochs', Y축 레이블은 'MSE'로 지정하세요.","# 여기에 답안을 작성하세요
+plt.figure()
+plt.plot(history.history['mse'])
+plt.plot(history.history['val_mse'])
+plt.title(""Model MSE"")
+plt.xlabel(""Epochs"")
+plt.ylabel(""MSE"")
+plt.show()",1,✅
